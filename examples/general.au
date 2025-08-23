@@ -1,0 +1,89 @@
+# Декоратор для логирования функций и полей
+@class log(level: LogLevel) {
+    fn wrap(target: (Any...) -> Any, args: Any[]): Any {
+        println("Calling function", target, "with args", args, "level", level)
+        return target(args)
+    }
+
+    fn wrap(target: Field, value: Any): Any {
+        println("Accessing field", target.name, "value", value, "level", level)
+        return value
+    }
+}
+
+# Интерфейс
+interface Printable {
+    fn print(): String
+}
+
+# Класс с модификаторами и декоратором
+public class User : Printable {
+    @log(LogLevel.DEBUG)
+    private var name: String
+    private var age: Int
+
+    # Конструктор
+    public fn init(name: String, age: Int) {
+        self.name = name
+        self.age = age
+    }
+
+    # Метод с декоратором и перегрузкой оператора
+    @log(LogLevel.INFO)
+    public fn print(): String {
+        return "User(name=" + self.name + ", age=" + self.age + ")"
+    }
+
+    operator + (other: User): User {
+        return User(self.name + "&" + other.name, self.age + other.age)
+    }
+}
+
+# Функция как first-class
+fn applyTwice(fun: (Int) -> Int, x: Int): Int {
+    return fun(fun(x))
+}
+
+fn main() {
+    # Лямбда
+    let double = (x: Int) => x * 2
+    let result = applyTwice(double, 3)  # 12
+    # Условия
+    let message: String = if result > 10 {
+        "Result is large"
+    } elif result == 10 {
+        "Result is ten"
+    } else {
+        "Result is small"
+    }
+    println(message)
+    # Циклы
+    let sum = 0
+    # for по коллекции
+    let nums = [1, 2, 3, 4, 5]
+    for n in nums {
+        sum = sum + n
+    }
+    # while
+    let counter = 0
+    while counter < 3 {
+        println("Counter =", counter)
+        counter = counter + 1
+    }
+    # loop с break-значением
+    let loopResult = loop {
+        counter = counter + 1
+        if counter >= 5 {
+            break counter * 10
+        }
+    }
+    println("Loop result:", loopResult)
+    # Использование класса
+    let u1 = User("Alice", 30)
+    let u2 = User("Bob", 25)
+    let u3 = u1 + u2
+    println(u3.print())
+    # Декораторы автоматически логируют доступ к полям и вызовы функций
+    println(u1.name)   # @log активируется
+    u1.name = "Carol"  # @log активируется при записи
+}
