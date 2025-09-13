@@ -1,6 +1,8 @@
 grammar Aurum;
 
-// === Парсерные правила ===
+@header {
+package lang.aurum.parsing.antlr;
+}
 
 program
     : (importStmt | packageDecl | declaration)* EOF
@@ -39,7 +41,7 @@ typeDef
     : 'type' Identifier '=' typeExpr
     ;
 
-// === Интерфейсы ===
+
 interfaceDecl
     : decorator* modifier* 'interface' Identifier ('[' genericTypeList ']')? '{' interfaceMember* '}'
     ;
@@ -56,7 +58,7 @@ modifier
     : 'public' | 'private' | 'protected' | 'static' | 'final' | 'abstract'
     ;
 
-// === Функции ===
+
 funcDecl
     : funcSign block
     ;
@@ -65,7 +67,7 @@ decorator
     : '@' Identifier ('(' argList? ')')?
     ;
 
-// === Классы ===
+
 classDecl
     : decorator* modifier* 'class' Identifier ('[' genericTypeList ']')? ('(' paramList? ')')? (':' qualifiedNameList)? '{' memberDecl* '}'
     ;
@@ -90,7 +92,8 @@ memberDecl
 
 varDecl
     : decorator* modifier* ('let' | 'var') Identifier (':' typeExpr)? ('=' expression)? # singleDecl
-    | decorator* modifier* ('let' | 'var') Identifier (':' typeExpr)? (',' Identifier (':' typeExpr)?)+ ('=' expression)? # multiDecl
+    | decorator* modifier* ('let' | 'var') Identifier (':' typeExpr)? (',' Identifier (':' typeExpr)?)+ ('=' expression)? # unpackDecl
+    | decorator* modifier* ('let' | 'var') Identifier (':' typeExpr)? ('=' expression)? (',' Identifier (':' typeExpr)? ('=' expression)?)+ # multiDecl
     ;
 
 operatorDecl
@@ -114,7 +117,7 @@ block
     | statement
     ;
 
-// === Условия и циклы ===
+
 statement
     : declaration
     | assignmentExpression
@@ -129,12 +132,12 @@ statement
     | continueStatement
     ;
 
-// if как statement
+
 ifStatement
     : 'if' expression block ('elif' expression block)* ('else' block)?
     ;
 
-// match как statement
+
 matchStatement
     : 'match' expression '{' matchCaseStatement+ '}'
     ;
@@ -165,9 +168,9 @@ typePattern
     : Identifier typeExpr
     ;
 
-// Условные конструкции
 
-// Циклы
+
+
 loopStatement
     : 'loop' block
     ;
@@ -188,7 +191,7 @@ continueStatement
     : 'continue'
     ;
 
-// === Типы ===
+
 typeExpr
     : unionType typeSuffix*
     ;
@@ -233,7 +236,7 @@ typeList
     : typeExpr (',' typeExpr)*
     ;
 
-// === Выражения ===
+
 expression
     : ifExpr
     | matchExpr
@@ -242,12 +245,12 @@ expression
     | lambdaExpr
     ;
 
-// if как expression
+
 ifExpr
     : 'if' expression expressionBlock ('elif' expression expressionBlock)* ('else' expressionBlock)?
     ;
 
-// match как expression
+
 matchExpr
     : 'match' expression '{' matchCase+ '}'
     ;
@@ -256,9 +259,9 @@ matchCase
     : pattern '=>' (expression | block)
     ;
 
-// Вспомогательное: либо одно выражение, либо блок
+
 expressionBlock
-    : block
+    : '{' statement* expression '}'
     | expression
     ;
 
@@ -289,10 +292,10 @@ postfixPart
     ;
 
 primaryExpr
-    : Identifier
-    | Literal
-    | '(' expression ')'
-    | '[' (expression (',' expression)*)? ']'
+    : Identifier                              # identifier
+    | Literal                                 # literal
+    | '(' expression ')'                      # paren
+    | '[' (expression (',' expression)*)? ']' # array
     ;
 
 argList
@@ -307,15 +310,15 @@ qualifiedName
     : Identifier ('.' Identifier)*
     ;
 
-// === Лексеры ===
+
 EmptyBraces
-    : '[]' | '()'
+    : '()'
     ;
 
 OperatorSymbol
     : '+' | '-' | '*' | '/' | '%' | '**'
     | '==' | '!=' | '<' | '>' | '<=' | '>='
-    | 'as' | EmptyBraces
+    | 'as' | '[]' | EmptyBraces
     | [+\-*/\\%$!?~;^<>]+
     ;
 
@@ -357,7 +360,7 @@ fragment Letter
     : [a-zA-Z]
     ;
 
-// Пропуск пробелов и комментариев
+
 WS
     : [ \t\r\n]+ -> skip
     ;
