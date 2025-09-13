@@ -9,7 +9,7 @@ import java.lang.reflect.ParameterizedType;
 import java.util.*;
 import java.util.stream.Collectors;
 
-public class TypeFactory {
+public final class TypeFactory {
     private static final Map<Class<?>, Type> cache = new HashMap<>();
 
     public static Type ofClass(Class<?> clazz) {

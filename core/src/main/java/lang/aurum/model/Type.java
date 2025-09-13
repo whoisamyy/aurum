@@ -64,7 +64,7 @@ public interface Type extends Accessible, Attributable, Generic {
 
 
 
-    /// Creates a copy ofMethod this type with the given type arguments applied. For example, the following class:
+    /// Creates a copy of this type with the given type arguments applied. For example, the following class:
     ///
     /// ```
     /// class Example<T, U> extends Other<T, String> {
@@ -76,7 +76,7 @@ public interface Type extends Accessible, Attributable, Generic {
     /// }
     /// ```
     /// after applying
-    /// ```new TypeArgument[]{TypeArgument.ofMethod("T", Integer), TypeArgument.ofMethod("U", List<Integer>)}```
+    /// ```new TypeArgument[]{TypeArgument.of("T", Integer), TypeArgument.of("U", List<Integer>)}```
     /// turns into
     ///
     /// ```
@@ -104,6 +104,11 @@ public interface Type extends Accessible, Attributable, Generic {
         return TypeKind.REFERENCE;
     }
 
+    /// Searches for method with signature that exactly matches provided signature in [#methods()] of this class
+    /// @param name Name of the method
+    /// @param returnType Return type of the method
+    /// @param parameterTypes types of parameters of the method
+    /// @return Returns [Method] with provided signature or none if no method found
     default Optional<Method> findMethodExact(String name, Type returnType, Type... parameterTypes) {
         return Arrays.stream(methods())
                 .filter(m -> m.name().equals(name))
@@ -123,11 +128,21 @@ public interface Type extends Accessible, Attributable, Generic {
                 .findFirst();
     }
 
+    /// Searches for method with signature that exactly matches provided signature in [#methods()] of this class
+    /// @param name Name of the method
+    /// @param returnType Return type of the method
+    /// @return Returns [Method] with provided signature or none if no method found
     default Optional<Method> findMethodExact(String name, Type returnType) {
         return findMethodExact(name, returnType, Utils.EMPTY_TYPES);
     }
 
-
+    /// Searches for method with signature that matches provided signature in [#methods()] of this class. <br>
+    /// Note that returned method can contain superclasses of provided parameter types as its parameter types. <br>
+    /// If exact signature is required then it is recommended to use [findMethodExact][#findMethodExact(String, Type, Type...)] method
+    /// @param name Name of the method
+    /// @param returnType Return type of the method
+    /// @param parameterTypes types of parameters of the method
+    /// @return Returns [Method] or none if no method found
     default Optional<Method> findMethod(String name, Type returnType, Type... parameterTypes) {
         return Arrays.stream(methods())
                 .filter(m -> m.name().equals(name))
@@ -147,6 +162,12 @@ public interface Type extends Accessible, Attributable, Generic {
                 .findFirst();
     }
 
+    /// Searches for method with signature that matches provided signature in [#methods()] of this class. <br>
+    /// Note that returned method can contain superclasses of provided parameter types as its parameter types. <br>
+    /// If exact signature is required then it is recommended to use [findMethodExact][#findMethodExact(String, Type)] method
+    /// @param name Name of the method
+    /// @param returnType Return type of the method
+    /// @return Returns [Method] or none if no method found
     default Optional<Method> findMethod(String name, Type returnType) {
         return findMethod(name, returnType, Utils.EMPTY_TYPES);
     }

@@ -23,12 +23,12 @@ public interface TemplateType extends Type {
 
     @Override
     default Field[] fields() {
-        return new Field[0];
+        return Utils.EMPTY_FIELDS;
     }
 
     @Override
     default Method[] methods() {
-        return new Method[0];
+        return Utils.EMPTY_METHODS;
     }
 
     @Override
@@ -38,7 +38,12 @@ public interface TemplateType extends Type {
 
     @Override
     default Type withTypeArguments(TypeArgument[] typeArguments) {
-        return null;
+        return this;
+    }
+
+    @Override
+    default Type withTypeArguments(Type[] typeArguments) {
+        return this;
     }
 
     @Override
@@ -163,7 +168,7 @@ public interface TemplateType extends Type {
 
     @Override
     default Attribute[] attributes() {
-        return new Attribute[0];
+        return Utils.EMPTY_ATTRIBUTES;
     }
 
     @Override
@@ -178,6 +183,6 @@ public interface TemplateType extends Type {
 
     @Override
     default Member[] members() {
-        return Type.super.members();
+        return Utils.EMPTY_MEMBERS;
     }
 }

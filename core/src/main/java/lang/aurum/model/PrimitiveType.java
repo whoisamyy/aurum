@@ -1,6 +1,7 @@
 package lang.aurum.model;
 
 import lang.aurum.model.impl.PrimitiveTypeImpl;
+import lang.aurum.model.impl.TemplateTypeImpl;
 import lang.aurum.model.impl.Utils;
 
 import java.lang.reflect.AccessFlag;
@@ -97,5 +98,13 @@ public interface PrimitiveType extends Type {
     @Override
     default Attribute[] attributes() {
         return Utils.EMPTY_ATTRIBUTES;
+    }
+
+    static TemplateType of(String name, int arrayDimensions) {
+        return new TemplateTypeImpl(name, arrayDimensions);
+    }
+
+    static TemplateType of(String name) {
+        return of(name, 0);
     }
 }
