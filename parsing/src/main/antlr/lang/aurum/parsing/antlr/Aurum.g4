@@ -5,36 +5,38 @@ package lang.aurum.parsing.antlr;
 }
 
 program
-    : (importStmt | packageDecl | declaration)* EOF
+    : packageDecl (importStmt | declaration)*?
     ;
 
 importStmt
-    : 'import' qualifiedName ('as' Identifier)?
+    : 'import' qualifiedName ('as' Identifier)? ENDLINE+
     ;
 
 packageDecl
-    : 'package' qualifiedName
+    : 'package' qualifiedName ENDLINE+
     ;
 
 declaration
-    : typeDef
+    : (typeDef
     | extensionDecl
     | funcDecl
     | classDecl
     | interfaceDecl
     | decoratorDecl
     | varDecl
-    | operatorDecl
+    | operatorDecl)
+    ENDLINE*
     ;
 
 extensionDecl
-    : decorator* modifier* 'extend' typeExpr '{' extensionMember* '}'
+    : decorator* modifier* ':' typeExpr '{' ENDLINE* extensionMember* '}'
     ;
 
 extensionMember
-    : funcDecl
+    : (funcDecl
     | operatorDecl
-    | varDecl
+    | varDecl)
+    ENDLINE+
     ;
 
 typeDef
@@ -43,11 +45,7 @@ typeDef
 
 
 interfaceDecl
-    : decorator* modifier* 'interface' Identifier ('[' genericTypeList ']')? '{' interfaceMember* '}'
-    ;
-
-interfaceMember
-    : funcSign
+    : decorator* modifier* 'interface' Identifier ('[' genericTypeList ']')? (':' qualifiedNameList)? '{' ENDLINE* (funcSign ENDLINE+)* '}'
     ;
 
 funcSign
@@ -55,7 +53,12 @@ funcSign
     ;
 
 modifier
-    : 'public' | 'private' | 'protected' | 'static' | 'final' | 'abstract'
+    : 'public' # publicMod
+    | 'private' # privateMod
+    | 'protected' # protectedMod
+    | 'static' # staticMod
+    | 'final' # finalMod
+    | 'abstract' # abstractMod
     ;
 
 
@@ -67,17 +70,12 @@ decorator
     : '@' Identifier ('(' argList? ')')?
     ;
 
-
 classDecl
-    : decorator* modifier* 'class' Identifier ('[' genericTypeList ']')? ('(' paramList? ')')? (':' qualifiedNameList)? '{' memberDecl* '}'
+    : decorator* modifier* 'class' Identifier ('[' genericTypeList ']')? ('(' paramList? ')')? (':' qualifiedNameList)? '{' ENDLINE* (memberDecl ENDLINE+)* '}'
     ;
 
 decoratorDecl
-    : decorator* modifier* '@class' Identifier (EmptyBraces | ('(' paramList? ')'))? '{' decoratorMember* '}'
-    ;
-
-decoratorMember
-    : funcDecl
+    : decorator* modifier* '@class' Identifier (EmptyBraces | ('(' paramList? ')'))? '{' ENDLINE* (funcDecl ENDLINE+)* '}'
     ;
 
 qualifiedNameList
@@ -91,13 +89,21 @@ memberDecl
     ;
 
 varDecl
-    : decorator* modifier* ('let' | 'var') Identifier (':' typeExpr)? ('=' expression)? # singleDecl
-    | decorator* modifier* ('let' | 'var') Identifier (':' typeExpr)? (',' Identifier (':' typeExpr)?)+ ('=' expression)? # unpackDecl
-    | decorator* modifier* ('let' | 'var') Identifier (':' typeExpr)? ('=' expression)? (',' Identifier (':' typeExpr)? ('=' expression)?)+ # multiDecl
+    : decorator* modifier* 'let' Identifier (':' typeExpr)? ('=' expression)? # singleDecl
+    | decorator* modifier* 'let' varId (',' varId)+ ('=' expression)? # unpackDecl
+    | decorator* modifier* 'let' varIdAssignment (',' varIdAssignment)+ # multiDecl
+    ;
+
+varIdAssignment
+    : varId ('=' expression)?
+    ;
+
+varId
+    : Identifier (':' typeExpr)?
     ;
 
 operatorDecl
-    : decorator* 'operator' OperatorSymbol ('[' genericTypeList ']')? '(' paramList? ')' ':' typeExpr block
+    : decorator* modifier* 'operator' OperatorSymbol ('[' genericTypeList ']')? '(' paramList? ')' ':' typeExpr block
     ;
 
 paramList
@@ -113,23 +119,23 @@ returnType
     ;
 
 block
-    : '{' statement* '}'
+    : '{' ENDLINE* statement* '}'
     | statement
     ;
 
 
 statement
-    : declaration
-    | assignmentExpression
-    | expressionStatement
-    | returnStatement
-    | matchStatement
-    | ifStatement
-    | loopStatement
-    | whileStatement
-    | forStatement
-    | breakStatement
-    | continueStatement
+    : declaration # declarationStmt
+    | assignmentExpression ENDLINE+ # assignmentExpressionStmt
+    | returnStatement ENDLINE+ # returnStatementStmt
+    | matchStatement ENDLINE+ # matchStatementStmt
+    | ifStatement ENDLINE+ # ifStatementStmt
+    | loopStatement ENDLINE+ # loopStatementStmt
+    | whileStatement ENDLINE+ # whileStatementStmt
+    | forStatement ENDLINE+ # forStatementStmt
+    | expression ENDLINE+ # expressionStmt
+    | breakStatement ENDLINE+ # breakStatementStmt
+    | continueStatement ENDLINE+ # continueStatementStmt
     ;
 
 
@@ -137,25 +143,15 @@ ifStatement
     : 'if' expression block ('elif' expression block)* ('else' block)?
     ;
 
-
 matchStatement
-    : 'match' expression '{' matchCaseStatement+ '}'
+    : 'match' expression '{' ENDLINE* (matchCaseStatement ENDLINE+)+ '}'
     ;
 
 matchCaseStatement
-    : pattern '=>' block
-    ;
-
-assignmentExpression
-    : expression OperatorSymbol?'=' expression
-    ;
-
-expressionStatement
-    : expression
-    ;
-
-returnStatement
-    : 'return' expression?
+    : pattern '=>' block              # patternCase
+    | pattern '=>' expressionBlock    # patternCase
+    | 'default' '=>' block            # defaultCase
+    | 'default' '=>' expressionBlock  # defaultCase
     ;
 
 pattern
@@ -165,11 +161,16 @@ pattern
     ;
 
 typePattern
-    : Identifier typeExpr
+    : Identifier ':' typeExpr
     ;
 
+assignmentExpression
+    : qualifiedName OperatorSymbol?'=' expression
+    ;
 
-
+returnStatement
+    : 'return' expression?
+    ;
 
 loopStatement
     : 'loop' block
@@ -180,7 +181,7 @@ whileStatement
     ;
 
 forStatement
-    : 'for' (Identifier (',' Identifier)*?) 'in' expression block
+    : 'for' (varId (',' varId)*?) 'in' expression block
     ;
 
 breakStatement
@@ -193,20 +194,20 @@ continueStatement
 
 
 typeExpr
-    : unionType typeSuffix*
+    : unionType typeSuffix?
     ;
 
 typeSuffix
-    : '[]'
+    : '[]'+
     | '...'
     ;
 
 unionType
-    : intersectionType ('|' intersectionType)*
+    : intersectionType ('|' intersectionType)*?
     ;
 
 intersectionType
-    : genericType ('&' genericType)*
+    : genericType ('&' genericType)*?
     ;
 
 genericTypeList
@@ -214,12 +215,17 @@ genericTypeList
     ;
 
 genericType
-    : primaryType ('[' typeArgList ']')?  # regularType
+    : typeParam                           # parameterType
+    | primaryType ('[' typeArgList ']')?  # regularType
     | '?'                                 # wildcardType
     ;
 
 typeArgList
-    : typeExpr (',' typeExpr)*
+    : typeExpr (',' typeExpr)*?
+    ;
+
+typeParam
+    : Identifier (':' typeExpr (',' typeExpr)*?)
     ;
 
 primaryType
@@ -238,11 +244,11 @@ typeList
 
 
 expression
-    : ifExpr
-    | matchExpr
-    | loopStatement
-    | whileStatement
-    | lambdaExpr
+    : ifExpr # ifExprExpr
+    | matchStatement # matchExpr
+    | loopStatement # loopStatementExpr
+    | whileStatement # whileStatementExpr
+    | lambdaExpr # lambdaExprExpr
     ;
 
 
@@ -250,18 +256,8 @@ ifExpr
     : 'if' expression expressionBlock ('elif' expression expressionBlock)* ('else' expressionBlock)?
     ;
 
-
-matchExpr
-    : 'match' expression '{' matchCase+ '}'
-    ;
-
-matchCase
-    : pattern '=>' (expression | block)
-    ;
-
-
 expressionBlock
-    : '{' statement* expression '}'
+    : '{' ENDLINE* statement* expression '}'
     | expression
     ;
 
@@ -281,14 +277,21 @@ lambdaParam
     ;
 
 postfixExpr
-    : primaryExpr postfixPart*
+    : prefixExpr postfixPart?  # postfixWithPref
+    | postfixExpr postfixPart  # recursivePostfix
     ;
 
 postfixPart
     : '.' Identifier                           # memberAccess
+    | 'as' typeExpr                            # cast
     | '(' argList? ')'                         # functionCall
-    | '[' expression ']'                       # indexAccess
-    | EmptyBraces                              # emptyCall
+    | '[' argList ']'                          # indexAccess
+    | EmptyBraces                              # functionCall
+    | OperatorSymbol                           # operator
+    ;
+
+prefixExpr
+    : OperatorSymbol? primaryExpr
     ;
 
 primaryExpr
@@ -299,7 +302,7 @@ primaryExpr
     ;
 
 argList
-    : expression (',' expression)*
+    : expression (',' expression)*?
     ;
 
 binaryOp
@@ -332,11 +335,11 @@ Literal
     ;
 
 IntegerLiteral
-    : Digit+
+    : Digit+ [lLfFdD]?
     ;
 
 FloatLiteral
-    : Digit+ '.' Digit+
+    : Digit+ '.' Digit+ [fFdD]?
     ;
 
 StringLiteral
@@ -347,6 +350,33 @@ StringLiteral
 BooleanLiteral
     : 'true' | 'false'
     ;
+
+KWfn:         'fn'       ;
+KWclass:      'class'    ;
+KWwhen:       'when'     ;
+KWpackage:    'package'  ;
+KWinterface:  'interface';
+KWtype:       'type'     ;
+KWlet:        'let'      ;
+KWmatch:      'match'    ;
+KWdefault:    'default'  ;
+KWoperator:   'operator' ;
+KWreturn:     'return'   ;
+KWif:         'if'       ;
+KWelse:       'else'     ;
+KWelif:       'elif'     ;
+KWcontinue:   'continue' ;
+KWbreak:      'break'    ;
+KWfor:        'for'      ;
+KWwhile:      'while'    ;
+KWloop:       'loop'     ;
+KWextend:     'extend'   ;
+KWfinal:      'final'    ;
+KWabstract:   'abstract' ;
+KWstatic:     'static'   ;
+KWprivate:    'private'  ;
+KWpublic:     'public'   ;
+KWimport:     'import'   ;
 
 Identifier
     : Letter (Letter | Digit | '_')*
@@ -360,9 +390,12 @@ fragment Letter
     : [a-zA-Z]
     ;
 
+ENDLINE
+    : [;\r\n]+
+    ;
 
 WS
-    : [ \t\r\n]+ -> skip
+    : [ \t]+ -> skip
     ;
 
 COMMENT

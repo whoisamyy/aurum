@@ -20,3 +20,19 @@ dependencies {
 tasks.test {
     useJUnitPlatform()
 }
+
+tasks.withType<JavaCompile> {
+    options.compilerArgumentProviders.add(object : CommandLineArgumentProvider {
+        @CompileClasspath
+        val kotlinClasses = kotlin.sourceSets.main.flatMap { it.kotlin.classesDirectory }
+
+        override fun asArguments() = listOf(
+            "--patch-module",
+            "aurum.ir=${kotlinClasses.get().asFile.absolutePath}"
+        )
+    })
+}
+
+java {
+    modularity.inferModulePath.set(true)
+}

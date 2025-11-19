@@ -1,5 +1,8 @@
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+
 plugins {
     id("java")
+    kotlin("jvm") version "2.2.0"
     antlr
 }
 
@@ -11,11 +14,47 @@ repositories {
 }
 
 dependencies {
+    implementation(project(":core"))
+    implementation(project(":ir"))
+    implementation(project(":runtime"))
     antlr("org.antlr:antlr4:4.13.2")
+
+    compileOnly("org.projectlombok:lombok:1.18.40")
+    annotationProcessor("org.projectlombok:lombok:1.18.40")
+
+    implementation(kotlin("reflect"))
+    implementation("org.jetbrains:annotations:26.0.2")
 
     testImplementation(platform("org.junit:junit-bom:5.10.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+tasks.generateGrammarSource {
+    arguments = arguments + listOf("-no-listener")
+    source = fileTree("src/main/antlr")
+}
+
+tasks.withType<JavaCompile> {
+    dependsOn(tasks.generateGrammarSource)
+
+    options.compilerArgumentProviders.add(object : CommandLineArgumentProvider {
+        @CompileClasspath
+        val kotlinClasses = kotlin.sourceSets.main.flatMap { it.kotlin.classesDirectory }
+
+        override fun asArguments() = listOf(
+            "--patch-module",
+            "aurum.parsing=${kotlinClasses.get().asFile.absolutePath}"
+        )
+    })
+}
+
+tasks.withType<KotlinCompile> {
+    dependsOn(tasks.generateGrammarSource)
+}
+
+java {
+    modularity.inferModulePath.set(true)
 }
 
 tasks.test {
