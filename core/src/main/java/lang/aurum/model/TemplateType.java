@@ -13,7 +13,6 @@ public interface TemplateType extends Type {
         return "";
     }
 
-    @NotNull
     @Override
     default Type superClass() {
         return null;
@@ -35,11 +34,6 @@ public interface TemplateType extends Type {
     @Override
     default Method[] methods() {
         return Utils.EMPTY_METHODS;
-    }
-
-    @Override
-    default boolean isArray() {
-        return false;
     }
 
     @NotNull

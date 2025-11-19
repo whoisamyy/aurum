@@ -6,6 +6,7 @@ import org.jetbrains.annotations.NotNull;
 import java.lang.reflect.AccessFlag;
 import java.util.*;
 
+@SuppressWarnings("OptionalUsedAsFieldOrParameterType")
 public final class TypeImpl implements Type {
     private final String className;
     private final String pkg;
@@ -121,12 +122,12 @@ public final class TypeImpl implements Type {
     }
 
     @Override
-    public Optional<TypeParameter[]> typeParameters() {
+    public @NotNull Optional<TypeParameter[]> typeParameters() {
         return typeParameters;
     }
 
     @Override
-    public Optional<TypeArgument[]> typeArguments() {
+    public @NotNull Optional<TypeArgument[]> typeArguments() {
         return typeArguments;
     }
 
