@@ -1,5 +1,7 @@
 package lang.aurum.model;
 
+import org.jetbrains.annotations.NotNull;
+
 public interface Attributable {
-    Attribute[] attributes();
+    @NotNull Attribute[] attributes();
 }

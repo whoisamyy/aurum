@@ -1,14 +1,17 @@
 package lang.aurum.model;
 
+import org.jetbrains.annotations.NotNull;
+
 public interface Method extends Member, Generic {
-    Type owner();
-    Type returnType();
-    Parameter[] parameters();
-    Type[] exceptions();
+    @NotNull Type returnType();
+    @NotNull Parameter[] parameters();
+    @NotNull Type[] exceptions();
 
     @Override
+    @NotNull
     Method withTypeArguments(TypeArgument[] typeArguments);
 
     @Override
+    @NotNull
     Method withTypeArguments(Type[] typeArguments);
 }

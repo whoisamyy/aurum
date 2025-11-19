@@ -1,31 +1,37 @@
 package lang.aurum.model;
 
 import lang.aurum.model.impl.Utils;
+import org.jetbrains.annotations.NotNull;
 
 import java.lang.reflect.AccessFlag;
 import java.util.Optional;
 
 public interface TemplateType extends Type {
+    @NotNull
     @Override
     default String pkg() {
         return "";
     }
 
+    @NotNull
     @Override
     default Type superClass() {
         return null;
     }
 
+    @NotNull
     @Override
     default Optional<Type[]> interfaces() {
         return Optional.empty();
     }
 
+    @NotNull
     @Override
     default Field[] fields() {
         return Utils.EMPTY_FIELDS;
     }
 
+    @NotNull
     @Override
     default Method[] methods() {
         return Utils.EMPTY_METHODS;
@@ -36,16 +42,19 @@ public interface TemplateType extends Type {
         return false;
     }
 
+    @NotNull
     @Override
     default Type withTypeArguments(TypeArgument[] typeArguments) {
         return this;
     }
 
+    @NotNull
     @Override
     default Type withTypeArguments(Type[] typeArguments) {
         return this;
     }
 
+    @NotNull
     @Override
     default AccessFlag[] accessFlags() {
         return Utils.DEFAULT_ACCESS_FLAGS;
@@ -166,16 +175,19 @@ public interface TemplateType extends Type {
         return false;
     }
 
+    @NotNull
     @Override
     default Attribute[] attributes() {
         return Utils.EMPTY_ATTRIBUTES;
     }
 
+    @NotNull
     @Override
     default Optional<TypeParameter[]> typeParameters() {
         return Optional.empty();
     }
 
+    @NotNull
     @Override
     default Optional<TypeArgument[]> typeArguments() {
         return Optional.empty();

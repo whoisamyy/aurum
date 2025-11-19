@@ -24,8 +24,7 @@ public class Utils {
         if (type instanceof TemplateType templateType) {
             Type mapped = typeMap.get(templateType.className());
             if (mapped != null) {
-                int dims = templateType.arrayDimensions();
-                return dims > 0 ? mapped.asArray(dims) : mapped;
+                return mapped;
             }
             return type;
         }
@@ -51,7 +50,6 @@ public class Utils {
                 type.pkg(),
                 type.superClass(),
                 type.interfaces(),
-                type.arrayDimensions(),
                 type.fields(),
                 type.methods(),
                 type.accessFlags(),
@@ -118,5 +116,181 @@ public class Utils {
             typeMap.put(typeArgument.name(), typeArgument.bound());
         }
         return typeMap;
+    }
+
+    // Build mapping for a concrete type using its declared type parameters and provided arguments
+    public static Map<String, Type> getTypeMap(Type type, TypeArgument[] typeArguments) {
+        Map<String, Type> typeMap = new HashMap<>();
+        if (typeArguments == null)
+            return typeMap;
+        if (type.typeParameters().isEmpty())
+            return typeMap;
+        TypeParameter[] tps = type.typeParameters().get();
+        int n = Math.min(tps.length, typeArguments.length);
+        for (int i = 0; i < n; i++) {
+            typeMap.put(tps[i].name(), typeArguments[i].bound());
+        }
+        return typeMap;
+    }
+
+    // Convert raw type array to named type arguments based on the type's type parameters order
+    public static TypeArgument[] toTypeArguments(Type type, Type[] typeArguments) {
+        if (typeArguments == null || type.typeParameters().isEmpty())
+            return new TypeArgument[0];
+        TypeParameter[] tps = type.typeParameters().get();
+        int n = Math.min(tps.length, typeArguments.length);
+        TypeArgument[] args = new TypeArgument[n];
+        for (int i = 0; i < n; i++) {
+            args[i] = new TypeArgumentImpl(tps[i].name(), typeArguments[i]);
+        }
+        return args;
+    }
+
+    public static UnionType applyTypeArguments(UnionType type, TypeArgument[] typeArguments) {
+        Map<String, Type> typeMap = Utils.getTypeMap(typeArguments);
+        int typesLength = type.types().length;
+        var newTypes = new Type[typesLength];
+        for (int i = 0; i < typesLength; i++) {
+            newTypes[i] = Utils.replaceTemplates(type.types()[i], typeMap);
+        }
+        return new UnionTypeImpl(newTypes);
+    }
+
+    public static UnionType applyTypeArguments(UnionType type, Type[] typeArguments) {
+        Map<String, Type> typeMap = Utils.getTypeMap(type, typeArguments);
+        int typesLength = type.types().length;
+        var newTypes = new Type[typesLength];
+        for (int i = 0; i < typesLength; i++) {
+            newTypes[i] = Utils.replaceTemplates(type.types()[i], typeMap);
+        }
+        return new UnionTypeImpl(newTypes);
+    }
+
+    public static IntersectionType applyTypeArguments(IntersectionType type, TypeArgument[] typeArguments) {
+        Map<String, Type> typeMap = Utils.getTypeMap(typeArguments);
+        int typesLength = type.types().length;
+        var newTypes = new Type[typesLength];
+        for (int i = 0; i < typesLength; i++) {
+            newTypes[i] = Utils.replaceTemplates(type.types()[i], typeMap);
+        }
+        return new IntersectionTypeImpl(newTypes);
+    }
+
+    public static IntersectionType applyTypeArguments(IntersectionType type, Type[] typeArguments) {
+        Map<String, Type> typeMap = Utils.getTypeMap(type, typeArguments);
+        int typesLength = type.types().length;
+        var newTypes = new Type[typesLength];
+        for (int i = 0; i < typesLength; i++) {
+            newTypes[i] = Utils.replaceTemplates(type.types()[i], typeMap);
+        }
+        return new IntersectionTypeImpl(newTypes);
+    }
+
+    // Apply type arguments to a Type (class/interface implementation)
+    public static Type applyTypeArguments(Type type, TypeArgument[] typeArguments) {
+        if (typeArguments == null) return type;
+        if (type.typeParameters().isEmpty()) return type;
+
+        Map<String, Type> typeMap = getTypeMap(type, typeArguments);
+        if (typeMap.isEmpty()) return type;
+
+        Type newSuperClass = replaceTemplates(type.superClass(), typeMap);
+        Optional<Type[]> newInterfaces = type.interfaces().map(intfs -> {
+            Type[] arr = new Type[intfs.length];
+            for (int i = 0; i < intfs.length; i++) arr[i] = replaceTemplates(intfs[i], typeMap);
+            return arr;
+        });
+
+        Field[] oldFields = type.fields();
+        Field[] newFields = new Field[oldFields.length];
+
+        Method[] oldMethods = type.methods();
+        Method[] newMethods = new Method[oldMethods.length];
+
+        TypeImpl newType = new TypeImpl(
+                type.className(),
+                type.pkg(),
+                newSuperClass,
+                newInterfaces,
+                newFields,
+                newMethods,
+                type.accessFlags(),
+                type.attributes(),
+                type.typeParameters(),
+                Optional.of(typeArguments)
+        );
+
+        for (int i = 0; i < oldMethods.length; i++) {
+            newMethods[i] = applyTypeArguments(oldMethods[i], newType, typeArguments);
+        }
+
+        for (int i = 0; i < oldFields.length; i++) {
+            Field f = oldFields[i];
+            Type newFieldType = replaceTemplates(f.type(), typeMap);
+            newFields[i] = new FieldImpl(newType, f.name(), newFieldType, f.attributes(), f.accessFlags());
+        }
+        return newType;
+    }
+
+    public static Type applyTypeArguments(Type type, Type[] typeArguments) {
+        if (typeArguments == null) return type;
+        if (typeArguments.length == 0) return type;
+        if (type.typeParameters().isEmpty()) return type;
+        TypeArgument[] args = toTypeArguments(type, typeArguments);
+        if (args.length == 0) return type;
+        return applyTypeArguments(type, args);
+    }
+
+    // Apply type arguments to a Method signature
+    public static Method applyTypeArguments(Method method, Type newOwner, TypeArgument[] typeArguments) {
+        Map<String, Type> typeMap = getTypeMap(typeArguments);
+
+        Type newReturnType = replaceTemplates(method.returnType(), typeMap);
+
+        Parameter[] oldParams = method.parameters();
+        Parameter[] newParams = new Parameter[oldParams.length];
+        for (int j = 0; j < oldParams.length; j++) {
+            var p = oldParams[j];
+            Type newParamType = replaceTemplates(p.type(), typeMap);
+            newParams[j] = new ParameterImpl(p.name(), newParamType, p.attributes());
+        }
+
+        Type[] oldEx = method.exceptions();
+        Type[] newEx = new Type[oldEx.length];
+        for (int j = 0; j < oldEx.length; j++) newEx[j] = replaceTemplates(oldEx[j], typeMap);
+
+        Optional<TypeParameter[]> newMethodTypeParams = method.typeParameters().map(mTPs -> {
+            TypeParameter[] res = new TypeParameter[mTPs.length];
+            for (int j = 0; j < mTPs.length; j++) {
+                var tp = mTPs[j];
+                Type newBound = replaceTemplates(tp.bound(), typeMap);
+                res[j] = new TypeParameterImpl(tp.name(), newBound);
+            }
+            return res;
+        });
+
+        return new MethodImpl(
+                newOwner,
+                method.name(),
+                newReturnType,
+                newParams,
+                newEx,
+                method.accessFlags(),
+                newMethodTypeParams,
+                method.typeArguments(),
+                method.attributes()
+        );
+    }
+
+    public static Method applyTypeArguments(Method method, Type newOwner, Type[] typeArguments) {
+        if (typeArguments == null) return method;
+        if (method.typeParameters().isEmpty()) return applyTypeArguments(method, newOwner, new TypeArgument[0]);
+        TypeParameter[] tps = method.typeParameters().get();
+        int n = Math.min(tps.length, typeArguments.length);
+        TypeArgument[] args = new TypeArgument[n];
+        for (int i = 0; i < n; i++) {
+            args[i] = new TypeArgumentImpl(tps[i].name(), typeArguments[i]);
+        }
+        return applyTypeArguments(method, newOwner, args);
     }
 }

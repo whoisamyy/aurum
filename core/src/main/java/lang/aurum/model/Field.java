@@ -1,5 +1,7 @@
 package lang.aurum.model;
 
+import org.jetbrains.annotations.NotNull;
+
 public interface Field extends Member {
-    Type type();
+    @NotNull Type type();
 }

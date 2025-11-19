@@ -1,10 +1,12 @@
 package lang.aurum.model;
 
+import org.jetbrains.annotations.NotNull;
+
 import java.lang.reflect.AccessFlag;
 import java.util.Arrays;
 
 public interface Accessible {
-    AccessFlag[] accessFlags();
+    @NotNull AccessFlag[] accessFlags();
     default int intFlags() {
         return Arrays.stream(accessFlags()).reduce(0, (flags, f2) -> flags | f2.mask(), (f1, f2) -> f1 | f2);
     }

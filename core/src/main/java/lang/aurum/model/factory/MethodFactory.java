@@ -10,7 +10,7 @@ import java.lang.reflect.Constructor;
 import java.util.Arrays;
 import java.util.Optional;
 
-public class MethodFactory {
+public final class MethodFactory {
     public static Method ofMethod(java.lang.reflect.Method method) {
         return new MethodImpl(
                 TypeFactory.ofClass(method.getDeclaringClass()),

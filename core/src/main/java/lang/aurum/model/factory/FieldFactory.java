@@ -6,9 +6,10 @@ import lang.aurum.model.impl.Utils;
 
 import java.lang.reflect.AccessFlag;
 
-public class FieldFactory {
+public final class FieldFactory {
     public static Field of(java.lang.reflect.Field field) {
         return new FieldImpl(
+                TypeFactory.ofClass(field.getDeclaringClass()),
                 field.getName(),
                 TypeFactory.ofClass(field.getType()),
                 Utils.EMPTY_ATTRIBUTES,

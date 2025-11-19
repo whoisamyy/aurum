@@ -2,6 +2,7 @@ package lang.aurum.model.impl;
 
 import lang.aurum.model.PrimitiveType;
 import lang.aurum.model.Type;
+import org.jetbrains.annotations.NotNull;
 
 import java.lang.classfile.TypeKind;
 
@@ -28,27 +29,21 @@ public enum PrimitiveTypeImpl implements PrimitiveType {
 
     // array types are not primitive so return TypeImpl
 
+    @NotNull
     @Override
     public Type asArray(int dimensions) {
-        return new TypeImpl(
-                className(),
-                "",
-                superClass(),
-                interfaces(),
-                dimensions,
-                fields(),
-                methods(),
-                accessFlags(),
-                attributes(),
-                typeParameters(),
-                typeArguments()
-        );
+        if (dimensions == 0)
+            return this;
+
+        return new ArrayTypeImpl<PrimitiveType>(this, dimensions);
     }
+    @NotNull
     @Override
     public TypeKind typeKind() {
         return typeKind;
     }
 
+    @NotNull
     @Override
     public String className() {
         return className;

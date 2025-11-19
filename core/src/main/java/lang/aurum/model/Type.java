@@ -1,21 +1,22 @@
 package lang.aurum.model;
 
 import lang.aurum.model.factory.TypeFactory;
+import lang.aurum.model.impl.ArrayTypeImpl;
 import lang.aurum.model.impl.Utils;
+import org.jetbrains.annotations.NotNull;
 
 import java.lang.classfile.TypeKind;
 import java.util.Arrays;
 import java.util.Optional;
 
 public interface Type extends Accessible, Attributable, Generic {
-    String className();
-    String pkg();
-    default String fullName() {
+    @NotNull String className();
+    @NotNull String pkg();
+    default @NotNull String fullName() {
         return pkg().isEmpty() ? className() : pkg() + "." + className();
     }
     Type superClass();
-    Optional<Type[]> interfaces();
-    int arrayDimensions();
+    @NotNull Optional<Type[]> interfaces();
     default Member[] members() {
         int fieldsLen = fields().length;
         int methodsLen = methods().length;
@@ -24,17 +25,27 @@ public interface Type extends Accessible, Attributable, Generic {
         System.arraycopy(methods(), 0, members, fieldsLen, methodsLen);
         return members;
     }
-    Field[] fields();
-    Method[] methods();
+    @NotNull Field[] fields();
+    @NotNull Method[] methods();
 
     default boolean isPrimitive() {
         return false;
     }
     default boolean isArray() {
-        return arrayDimensions() > 0;
+        return false;
     }
 
     default boolean isSubclassOf(Type other) {
+        if (this.fullName().equals(other.fullName()))
+            return true;
+
+        if (other instanceof UnionType union) {
+            return Arrays.stream(union.types()).anyMatch(this::isSubclassOf);
+        }
+        if (other instanceof IntersectionType intersection) {
+            return Arrays.stream(intersection.types()).allMatch(this::isSubclassOf);
+        }
+
         if (other.fullName().equals("java.lang.Object"))
             return true;
 
@@ -43,11 +54,13 @@ public interface Type extends Accessible, Attributable, Generic {
                 return true;
         }
 
-        if (this.superClass().equals(other))
-            return true;
+        if (this.superClass() != null) {
+            if (this.superClass().equals(other))
+                return true;
 
-        if (this.superClass().isSubclassOf(other))
-            return true;
+            if (this.superClass().isSubclassOf(other))
+                return true;
+        }
 
         if (interfaces().isPresent()) {
             for (var inter : interfaces().get()) {
@@ -60,8 +73,14 @@ public interface Type extends Accessible, Attributable, Generic {
     }
 
 
-    Type asArray(int dimensions);
+    /// @param dimensions dimensions or depth of the resulting ArrayType
+    /// @return returns Type and not ArrayType because if dimensions == 0 then the type itself is returned
+    default @NotNull Type asArray(int dimensions) {
+        if (dimensions == 0)
+            return this;
 
+        return new ArrayTypeImpl<>(this, dimensions);
+    }
 
 
     /// Creates a copy of this type with the given type arguments applied. For example, the following class:
@@ -70,7 +89,7 @@ public interface Type extends Accessible, Attributable, Generic {
     /// class Example<T, U> extends Other<T, String> {
     ///     private T field;
     ///
-    ///     public <V extends U> V doThings(T t) {
+    ///     public <V extends U> V doThings(T param) {
     ///         // ...
     ///     }
     /// }
@@ -91,28 +110,28 @@ public interface Type extends Accessible, Attributable, Generic {
     /// @param typeArguments type arguments
     /// @return Type with type arguments applied to it.
     @Override
-    Type withTypeArguments(TypeArgument[] typeArguments);
+    @NotNull Type withTypeArguments(TypeArgument[] typeArguments);
     @Override
-    Type withTypeArguments(Type[] typeArguments);
+    @NotNull Type withTypeArguments(Type[] typeArguments);
 
-    default Type asArrayWithTypeArguments(int dimensions, TypeArgument[] typeArguments) {
+    default @NotNull Type asArrayWithTypeArguments(int dimensions, TypeArgument[] typeArguments) {
         return asArray(dimensions).withTypeArguments(typeArguments);
     }
 
 
-    default TypeKind typeKind() {
+    default @NotNull TypeKind typeKind() {
         return TypeKind.REFERENCE;
     }
 
-    /// Searches for method with signature that exactly matches provided signature in [#methods()] of this class
+    /// Searches for method with signature that exactly matches provided signature in [methods][#methods()] of this class
     /// @param name Name of the method
     /// @param returnType Return type of the method
     /// @param parameterTypes types of parameters of the method
     /// @return Returns [Method] with provided signature or none if no method found
-    default Optional<Method> findMethodExact(String name, Type returnType, Type... parameterTypes) {
+    default @NotNull Optional<Method> findMethodExact(String name, Type returnType, Type... parameterTypes) {
         return Arrays.stream(methods())
-                .filter(m -> m.name().equals(name))
-                .filter(m -> m.returnType().equals(returnType))
+                .filter(m -> name.equals(m.name()))
+                .filter(m -> returnType.equals(m.returnType()))
                 .filter(m -> {
                     Type[] array = Arrays.stream(m.parameters()).map(Parameter::type).toArray(Type[]::new);
                     int arrayLength = array.length;
@@ -128,24 +147,56 @@ public interface Type extends Accessible, Attributable, Generic {
                 .findFirst();
     }
 
-    /// Searches for method with signature that exactly matches provided signature in [#methods()] of this class
+    /// Searches for method with signature that exactly matches provided signature in [methods][#methods()] of this class <br>
+    /// @param name Name of the method
+    /// @param parameterTypes types of parameters of the method. If none are provided then parameter types will be empty.
+    /// @return Returns [Method] with provided signature or none if no method found
+    default @NotNull Optional<Method> findMethodExact(String name, Type... parameterTypes) {
+        return Arrays.stream(methods())
+                     .filter(m -> name.equals(m.name()))
+                     .filter(m -> {
+                         Type[] array = Arrays.stream(m.parameters()).map(Parameter::type).toArray(Type[]::new);
+                         int arrayLength = array.length;
+                         if (arrayLength != parameterTypes.length)
+                             return false;
+                         for (int i = 0; i < arrayLength; i++) {
+                             var type = array[i];
+                             if (!type.equals(parameterTypes[i]))
+                                 return false;
+                         }
+                         return true;
+                     })
+                     .findFirst();
+    }
+
+    /// Searches for method with signature that exactly matches provided signature in [methods][#methods()] of this class
     /// @param name Name of the method
     /// @param returnType Return type of the method
     /// @return Returns [Method] with provided signature or none if no method found
-    default Optional<Method> findMethodExact(String name, Type returnType) {
+    default @NotNull Optional<Method> findMethodExact(String name, Type returnType) {
         return findMethodExact(name, returnType, Utils.EMPTY_TYPES);
     }
 
-    /// Searches for method with signature that matches provided signature in [#methods()] of this class. <br>
+    /// @param name Name of methods
+    /// @param returnType Return type of methods
+    /// @return Returns array of methods with given name and return type
+    default @NotNull Method[] getMethodsExact(String name, Type returnType) {
+        return Arrays.stream(methods())
+                     .filter(m -> returnType.equals(m.returnType()))
+                     .filter(m -> name.equals(m.name()))
+                     .toArray(Method[]::new);
+    }
+
+    /// Searches for method with signature that matches provided signature in [methods][#methods()] of this class. <br>
     /// Note that returned method can contain superclasses of provided parameter types as its parameter types. <br>
     /// If exact signature is required then it is recommended to use [findMethodExact][#findMethodExact(String, Type, Type...)] method
     /// @param name Name of the method
     /// @param returnType Return type of the method
     /// @param parameterTypes types of parameters of the method
     /// @return Returns [Method] or none if no method found
-    default Optional<Method> findMethod(String name, Type returnType, Type... parameterTypes) {
+    default @NotNull Optional<Method> findMethod(String name, Type returnType, Type... parameterTypes) {
         return Arrays.stream(methods())
-                .filter(m -> m.name().equals(name))
+                .filter(m -> name.equals(m.name()))
                 .filter(m -> returnType.isSubclassOf(m.returnType()))
                 .filter(m -> {
                     Type[] array = Arrays.stream(m.parameters()).map(Parameter::type).toArray(Type[]::new);
@@ -162,32 +213,116 @@ public interface Type extends Accessible, Attributable, Generic {
                 .findFirst();
     }
 
-    /// Searches for method with signature that matches provided signature in [#methods()] of this class. <br>
+    /// Searches for method with signature that matches provided signature in [methods][#methods()] of this class. <br>
+    /// Note that returned method can contain superclasses of provided parameter types as its parameter types. <br>
+    /// If exact signature is required then it is recommended to use [findMethodExact][#findMethodExact(String, Type, Type...)] method
+    /// @param name Name of the method
+    /// @param parameterTypes types of parameters of the method
+    /// @return Returns [Method] or none if no method found
+    default @NotNull Optional<Method> findMethod(String name, Type[] parameterTypes) {
+        return Arrays.stream(methods())
+                     .filter(m -> name.equals(m.name()))
+                     .filter(m -> {
+                         Type[] array = Arrays.stream(m.parameters()).map(Parameter::type).toArray(Type[]::new);
+                         int arrayLength = array.length;
+                         if (arrayLength != parameterTypes.length)
+                             return false;
+                         for (int i = 0; i < arrayLength; i++) {
+                             var type = array[i];
+                             if (!parameterTypes[i].isSubclassOf(type))
+                                 return false;
+                         }
+                         return true;
+                     })
+                     .findFirst();
+    }
+
+    /// Searches for method with signature that matches provided signature in [methods][#methods()] of this class. <br>
     /// Note that returned method can contain superclasses of provided parameter types as its parameter types. <br>
     /// If exact signature is required then it is recommended to use [findMethodExact][#findMethodExact(String, Type)] method
     /// @param name Name of the method
     /// @param returnType Return type of the method
     /// @return Returns [Method] or none if no method found
-    default Optional<Method> findMethod(String name, Type returnType) {
+    default @NotNull Optional<Method> findMethod(String name, Type returnType) {
         return findMethod(name, returnType, Utils.EMPTY_TYPES);
     }
 
+    /// Searches for method with the same name in [methods][#methods()] of this class. <br>
+    /// Note that returned method can have any return type and parameter types. <br>
+    /// If exact signature is required then it is recommended to use [findMethodExact][#findMethodExact(String, Type)] method
+    /// @param name Name of the method
+    /// @return Returns [Method] or none if no method found
+    default @NotNull Optional<Method> findMethod(String name) {
+        return Arrays.stream(methods())
+                     .filter(m -> name.equals(m.name()))
+                     .findFirst();
+    }
 
-    default Optional<Field> findField(String name) {
+    /// @param name Name of methods
+    /// @param returnType Return type of methods. Allows subclasses. If exact return type is required
+    /// then use [getMethodsExact][#getMethodsExact(String, Type)] method
+    /// @return Returns array of methods with given name and return type
+    default @NotNull Method[] getMethods(String name, Type returnType) {
+        return Arrays.stream(methods())
+                     .filter(m -> returnType.isSubclassOf(m.returnType()))
+                     .filter(m -> name.equals(m.name()))
+                     .toArray(Method[]::new);
+    }
+
+    ///
+    /// @param name Name of methods
+    /// @return Returns array of methods with given name
+    default @NotNull Method[] getMethods(String name) {
+        return Arrays.stream(methods())
+                     .filter(m -> name.equals(m.name()))
+                     .toArray(Method[]::new);
+    }
+
+    default @NotNull Optional<Field> findField(String name) {
         return Arrays.stream(fields())
-                .filter(f -> f.name().equals(name))
+                .filter(f -> name.equals(f.name()))
                 .findFirst();
     }
 
-    static Type ofClass(Class<?> clazz) {
+    default String toUsageString() {
+        return switch (this) {
+            case IntersectionType intersection ->
+                    "("
+                  + String.join(" & ", Arrays.stream(intersection.types()).map(Type::toUsageString).toArray(String[]::new))
+                  + ")";
+            case UnionType union ->
+                    "("
+                  + String.join(" | ", Arrays.stream(union.types()).map(Type::toUsageString).toArray(String[]::new))
+                  + ")";
+            case Type type -> {
+                String retString = type.fullName();
+                if (type.typeArguments().isPresent()) {
+                    var args = type.typeArguments().get();
+                    retString += "<" + String.join(
+                            ", ",
+                            Arrays.stream(args)
+                                  .map(TypeArgument::bound)
+                                  .map(Type::toUsageString)
+                                  .toArray(String[]::new)
+                    ) + ">";
+                }
+                if (type instanceof ArrayType<?> arrayType)
+                    retString += "[]".repeat(arrayType.arrayDimensions());
+
+                yield retString;
+            }
+        };
+    }
+
+    static @NotNull Type ofClass(Class<?> clazz) {
         return TypeFactory.ofClass(clazz);
     }
 
-    static Type ofReference(TypeReference<?> reference) {
+    static @NotNull Type ofReference(TypeReference<?> reference) {
         return TypeFactory.ofReference(reference);
     }
 
-    static Type ofType(java.lang.reflect.Type type) {
+    static @NotNull Type ofType(java.lang.reflect.Type type) {
         return TypeFactory.ofType(type);
     }
 }
