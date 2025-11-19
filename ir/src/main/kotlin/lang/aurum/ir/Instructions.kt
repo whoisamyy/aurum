@@ -2,376 +2,740 @@
 
 package lang.aurum.ir
 
-import java.io.DataInputStream
+import lang.aurum.model.Type
 import java.io.DataOutputStream
 
-interface CodeElement {
-    fun write(out: DataOutputStream)
+const val CONSTANT_POOL_ELEMENT_SIZE: Int = 2
+const val OPCODE_SIZE: Int = 1 // in bytes
+
+private fun writeConstantPoolRef(ref: UShort, out: DataOutputStream) {
+    out.writeShort(ref.toInt())
 }
 
-data class LabeledBlock (
+interface Sized : Writable {
+    fun size(): Int
+}
+
+interface Writable {
+    fun write(out: DataOutputStream)
+}
+interface CodeElement : Sized
+
+sealed interface TargetValue
+
+sealed interface Ref : Sized, TargetValue
+object NullRef : Ref {
+    override fun size(): Int = 1
+
+    override fun write(out: DataOutputStream) {
+        out.writeByte(0)
+    }
+
+    override fun toString(): String {
+        return "null"
+    }
+}
+
+interface Value : Ref
+
+
+data class Target (
     val name: String,
-    val instructions: List<Instruction>
-) : CodeElement {
-    val size: Int = instructions.fold(name.length) { i, inst -> i + inst.size }
+    val usages: Int = 0
+) : Sized {
+    constructor(ref: Reference) : this(ref.name)
+    override fun size(): Int = name.length
+    override fun write(out: DataOutputStream) {
+        out.writeUTF(name)
+    }
+
+    override fun toString(): String {
+        return "${name}${if (usages == 0) "" else "_$usages"}"
+    }
+}
+
+data class Reference (
+    val name: String
+) : Value {
+    constructor(target: Target) : this(target.name)
+
+    override fun size(): Int = name.length
+    override fun write(out: DataOutputStream) {
+        out.writeUTF(name)
+    }
+
+    override fun toString(): String {
+        return name
+    }
+}
+
+interface ConstantPoolRef : Ref {
+    val ref: UShort
+}
+
+abstract class ConstRef<T>(override val ref: UShort) : Value, ConstantPoolRef {
+    override fun size(): Int = CONSTANT_POOL_ELEMENT_SIZE
+    override fun write(out: DataOutputStream) {
+        writeConstantPoolRef(ref, out)
+    }
+
+    override fun toString(): String {
+        return "#$ref"
+    }
+}
+
+class BooleanRef(ref: UShort) : ConstRef<Boolean>(ref)
+class ByteRef(ref: UShort) : ConstRef<Byte>(ref)
+class ShortRef(ref: UShort) : ConstRef<Short>(ref)
+class CharRef(ref: UShort) : ConstRef<Char>(ref)
+class IntRef(ref: UShort) : ConstRef<Int>(ref)
+class FloatRef(ref: UShort) : ConstRef<Float>(ref)
+class LongRef(ref: UShort) : ConstRef<Long>(ref)
+class DoubleRef(ref: UShort) : ConstRef<Double>(ref)
+class StringRef(ref: UShort) : ConstRef<String>(ref)
+
+class TypeRef(ref: UShort) : ConstRef<Type>(ref)
+
+sealed interface MethodRef : Value
+
+data class SingleMethodRef (
+    override val ref: UShort
+) : MethodRef, ConstantPoolRef {
+    override fun size(): Int = CONSTANT_POOL_ELEMENT_SIZE // bytes
+    override fun write(out: DataOutputStream) {
+        writeConstantPoolRef(ref, out)
+    }
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as SingleMethodRef
+
+        return ref == other.ref
+    }
+
+    override fun hashCode(): Int {
+        return ref.hashCode()
+    }
+
+    override fun toString(): String = "#$ref"
+}
+
+@OptIn(ExperimentalUnsignedTypes::class)
+data class MethodGroupRef (
+    val refs: UShortArray
+) : MethodRef {
+    @OptIn(ExperimentalUnsignedTypes::class)
+    override fun size(): Int = refs.size * CONSTANT_POOL_ELEMENT_SIZE
+
+    override fun write(out: DataOutputStream) {
+        refs.forEach { writeConstantPoolRef(it, out) }
+    }
+
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+        if (!super.equals(other)) return false
+
+        other as MethodGroupRef
+
+        return refs.contentEquals(other.refs)
+    }
+
+    override fun hashCode(): Int {
+        var result = super.hashCode()
+        result = 31 * result + refs.contentHashCode()
+        return result
+    }
+
+    override fun toString(): String {
+        return "(${refs.joinToString(", ") { "#$it" }})"
+    }
+}
+
+data class FieldRef (
+    override val ref: UShort
+) : ConstantPoolRef {
+    override fun size(): Int = CONSTANT_POOL_ELEMENT_SIZE // bytes
+    override fun write(out: DataOutputStream) {
+        writeConstantPoolRef(ref, out)
+    }
+
+    override fun toString(): String = "#$ref"
+}
+
+data class Label (
+    val name: String
+) : Value {
+
+    override fun size(): Int = name.length
 
     override fun write(out: DataOutputStream) {
         out.writeUTF(name)
-        instructions.forEach { it.write(out) }
+    }
+
+    override fun toString(): String {
+        return name
     }
 }
 
-data class SwitchCase (
-    val expectedVal: Int,
-    val labelRef: Int
-) : CodeElement {
-    override fun write(out: DataOutputStream) {
-        out.writeByte(expectedVal)
-        out.writeByte(labelRef)
-    }
-}
+abstract class Instruction(open val opcode: Opcode, val code: Int = opcode.ordinal) : CodeElement
 
-abstract class Instruction (
-    val code: Int,
-    val size: Int
-        // size can be changed for example in switch instruction
-) : CodeElement
-
-object Nop : Instruction(0xff, 1) {
-    override fun write(out: DataOutputStream) {
-        out.write(code)
-    }
-}
-
-data class Break (
-    val labelRef: Int
-) : Instruction(code, 2) {
-    companion object {
-        const val code: Int = 0x01
-    }
+data class Null (
+    val target: Target
+) : Instruction(Opcode.Null), TargetValue {
+    override fun size(): Int = OPCODE_SIZE + target.size()
 
     override fun write(out: DataOutputStream) {
         out.writeByte(code)
-        out.writeByte(labelRef)
+    }
+
+    override fun toString(): String {
+        return "$target = null"
     }
 }
 
-data class BreakIf (
-    val condRef: Int,
-    val trueLabel: Int,
-    val falseLabel: Int
-) : Instruction(code, 4) {
-    companion object {
-        const val code: Int = 0x02
-    }
+data class Move (
+    val target: Target,
+    val ref: Ref
+) : Instruction(Opcode.Move), TargetValue {
+    override fun size(): Int = target.size() + ref.size()
 
     override fun write(out: DataOutputStream) {
         out.writeByte(code)
-        out.writeByte(condRef)
-        out.writeByte(trueLabel)
-        out.writeByte(falseLabel)
+        target.write(out)
+        ref.write(out)
+    }
+
+    override fun toString(): String {
+        return "$target = $ref"
     }
 }
 
-data class Switch (
-    val valueRef: Int,
-    val cases: List<SwitchCase>,
-    val defaultLabel: Int
-) : Instruction(code, 4 + cases.size*2) {
-    companion object {
-        const val code: Int = 0x03
-    }
-
+data class BinaryOp (
+    val target: Target,
+    val left: Ref,
+    val right: Ref,
+    val operator: BinaryOperator
+) : Instruction(operator.defaultOpcode!!), TargetValue {
+    override fun size(): Int = target.size() + left.size() + right.size()
     override fun write(out: DataOutputStream) {
         out.writeByte(code)
-        out.writeByte(cases.size)
-        cases.forEach {
-            it.write(out)
-        }
-        out.writeByte(defaultLabel)
+        target.write(out)
+        left.write(out)
+        right.write(out)
+    }
+
+    override fun toString(): String {
+        return "$target = $left ${operator.symbol} $right"
+    }
+}
+
+data class Neg (
+    val target: Target,
+    val ref: Ref
+) : Instruction(Opcode.Neg), TargetValue {
+    override fun size(): Int = target.size() + ref.size()
+    override fun write(out: DataOutputStream) {
+        out.writeByte(code)
+        target.write(out)
+        ref.write(out)
+    }
+
+    override fun toString(): String {
+        return "$target = !$ref"
+    }
+}
+
+data class Jump (
+    val label: Label
+) : Instruction(Opcode.Jump) {
+    override fun size(): Int = label.size()
+    override fun write(out: DataOutputStream) {
+        out.writeByte(code)
+        label.write(out)
+    }
+
+    override fun toString(): String {
+        return "jump $label"
+    }
+}
+
+data class JumpIf (
+    val cond: Value,
+    val label: Label
+) : Instruction(Opcode.JumpIf) {
+    override fun size(): Int = cond.size() + label.size()
+    override fun write(out: DataOutputStream) {
+        out.writeByte(code)
+        cond.write(out)
+        label.write(out)
+    }
+
+    override fun toString(): String {
+        return "if $cond then $label"
     }
 }
 
 data class Return (
-    val valueRef: Int
-) : Instruction(code, 2) {
-    companion object {
-        const val code: Int = 0x04
-    }
-
+    val value: Ref? = null
+) : Instruction(Opcode.Return) {
+    override fun size(): Int = value?.size() ?: 0
     override fun write(out: DataOutputStream) {
         out.writeByte(code)
-        out.writeByte(valueRef)
+        value?.write(out)
+    }
+
+    override fun toString(): String {
+        return "return ${value ?: ""}"
     }
 }
 
-data class Const (
-    val target: Int,
-    val typeRef: Int,
-    val constRef: Int
-) : Instruction(code, 4) {
-    companion object {
-        const val code: Int = 0x05
-    }
-
+data class Throw (
+    val ref: Value
+) : Instruction(Opcode.Throw) {
+    override fun size(): Int = ref.size()
     override fun write(out: DataOutputStream) {
         out.writeByte(code)
-        out.writeByte(target)
-        out.writeByte(typeRef)
-        out.writeByte(constRef)
+        ref.write(out)
+    }
+
+    override fun toString(): String {
+        return "throw $ref"
     }
 }
 
-data class Load (
-    val target: Int,
-    val varRef: Int
-) : Instruction(code, 3) {
-    companion object {
-        const val code: Int = 0x06
-    }
-
+data class TryBegin (
+    val labelCatch: Label,
+    val labelFinally: Label? = null
+) : Instruction(Opcode.TryBegin) {
+    override fun size(): Int = labelCatch.size() + (labelFinally?.size() ?: 0)
     override fun write(out: DataOutputStream) {
         out.writeByte(code)
-        out.writeByte(target)
-        out.writeByte(varRef)
+        labelCatch.write(out)
+        labelFinally?.write(out)
+    }
+
+    override fun toString(): String {
+        return "try $labelCatch ${labelFinally ?: ""}"
     }
 }
 
-data class BinOp (
-    val target: Int,
-    val opRef: Int,
-    val leftRef: Int,
-    val rightRef: Int
-) : Instruction(code, 5) {
-    companion object {
-        const val code: Int = 0x07
+class TryEnd : Instruction(Opcode.TryEnd) {
+    override fun size(): Int = 0
+    override fun write(out: DataOutputStream) = out.writeByte(code)
+    override fun toString(): String {
+        return "end"
     }
+}
 
+data class Catch (
+    val exceptionVar: Target,
+    val labelEnd: Label
+) : Instruction(Opcode.Catch) {
+    override fun size(): Int = exceptionVar.size() + labelEnd.size()
     override fun write(out: DataOutputStream) {
         out.writeByte(code)
-        out.writeByte(target)
-        out.writeByte(opRef)
-        out.writeByte(leftRef)
-        out.writeByte(rightRef)
+        exceptionVar.write(out)
+        labelEnd.write(out)
+    }
+
+    override fun toString(): String {
+        return "catch $exceptionVar $labelEnd"
     }
 }
 
 data class Call (
-    val target: Int,
-    val fnRef: Int,
-    val argRefs: List<Int>?
-) : Instruction(code, 4 + (argRefs?.size ?: 0)) {
-    companion object {
-        const val code: Int = 0x08
-    }
-
+    val target: Target,
+    val method: MethodRef,
+    val args: List<Ref>
+) : Instruction(Opcode.Call), TargetValue {
+    override fun size(): Int = target.size() + method.size() + args.sumOf { it.size() }
     override fun write(out: DataOutputStream) {
         out.writeByte(code)
-        out.writeByte(target)
-        out.writeByte(fnRef)
-        out.writeByte(argRefs?.size ?: 0)
-        argRefs?.forEach {
-            out.writeByte(it)
-        }
-    }
-}
-
-data class Closure (
-    val target: Int,
-    val lambdaRef: Int,
-    val envRefs: List<Int>?
-) : Instruction(code, 4 + (envRefs?.size ?: 0)) {
-    companion object {
-        const val code: Int = 0x09
+        target.write(out)
+        method.write(out)
+        out.writeShort(args.size)
+        args.forEach { it.write(out) }
     }
 
-    override fun write(out: DataOutputStream) {
-        out.writeByte(code)
-        out.writeByte(target)
-        out.writeByte(lambdaRef)
-        out.writeByte(envRefs?.size ?: 0)
-        envRefs?.forEach {
-            out.writeByte(it)
-        }
-    }
-}
-
-// should be followed by constructor call (like in JVM)
-data class New (
-    val target: Int,
-    val typeRef: Int
-) : Instruction(code, 3) {
-    companion object {
-        const val code: Int = 0x0A
-    }
-
-    override fun write(out: DataOutputStream) {
-        out.writeByte(code)
-        out.writeByte(target)
-        out.writeByte(typeRef)
-    }
-}
-
-data class GetField (
-    val target: Int,
-    val objRef: Int,
-    val fieldRef: Int
-) : Instruction(code, 4) {
-    companion object {
-        const val code: Int = 0x0B
-    }
-
-    override fun write(out: DataOutputStream) {
-        out.writeByte(code)
-        out.writeByte(target)
-        out.writeByte(objRef)
-        out.writeByte(fieldRef)
-    }
-}
-
-data class SetField (
-    val objRef: Int,
-    val fieldRef: Int,
-    val valueRef: Int
-) : Instruction(code, 4) {
-    companion object {
-        const val code: Int = 0x0C
-    }
-    override fun write(out: DataOutputStream) {
-        out.writeByte(code)
-        out.writeByte(objRef)
-        out.writeByte(fieldRef)
-        out.writeByte(valueRef)
+    override fun toString(): String {
+        return "$target = $method(${args.joinToString(", ")})"
     }
 }
 
 data class CallMethod (
-    val target: Int,
-    val objRef: Int,
-    val methodRef: Int,
-    val argRefs: List<Int>?
-) : Instruction(code, 5 + (argRefs?.size ?: 0)) {
-    companion object {
-        const val code: Int = 0x0D
-    }
+    val target: Target,
+    val obj: Value,
+    val method: MethodRef,
+    val args: List<Ref>
+) : Instruction(Opcode.CallMethod), TargetValue {
+    override fun size(): Int = target.size() + obj.size() + method.size() + args.sumOf { it.size() }
     override fun write(out: DataOutputStream) {
         out.writeByte(code)
-        out.writeByte(target)
-        out.writeByte(objRef)
-        out.writeByte(methodRef)
-        out.writeByte(argRefs?.size ?: 0)
-        argRefs?.forEach {
-            out.writeByte(it)
-        }
+        target.write(out)
+        obj.write(out)
+        method.write(out)
+        out.writeShort(args.size)
+        args.forEach { it.write(out) }
+    }
+
+    override fun toString(): String {
+        return "$target = $obj.$method(${args.joinToString(", ")})"
     }
 }
 
-// todo.note: move and use in parser
-private fun parseInstruction(input: DataInputStream): Instruction {
-    return when (input.readByte().toInt()) {
-        Nop.code -> Nop
-        Break.code -> Break(input.readByte().toInt())
-        BreakIf.code -> BreakIf(
-            input.readByte().toInt(),
-            input.readByte().toInt(),
-            input.readByte().toInt()
-        )
-        Switch.code -> {
-            val valRef = input.readByte()
-            val casesCount = input.readByte()
-            val cases: MutableList<SwitchCase> = mutableListOf()
-            repeat(casesCount.toInt()) {
-                cases += SwitchCase(
-                    input.readByte().toInt(),
-                    input.readByte().toInt()
-                )
-            }
-            val defaultLabel = input.readByte()
+data class CallVirtual (
+    val target: Target,
+    val obj: Value,
+    val method: MethodRef,
+    val args: List<Ref>
+) : Instruction(Opcode.CallVirtual), TargetValue {
+    override fun size(): Int = 2 + target.size() + obj.size() + method.size() + args.sumOf { it.size() }
+    override fun write(out: DataOutputStream) {
+        out.writeByte(code)
+        target.write(out)
+        obj.write(out)
+        method.write(out)
+        out.writeShort(args.size)
+        args.forEach { it.write(out) }
+    }
 
-            return Switch(
-                valRef.toInt(),
-                cases,
-                defaultLabel.toInt()
-            )
+    override fun toString(): String {
+        return "$target = $obj.$method(${args.joinToString(", ")})"
+    }
+}
+
+data class InvokeConstructor (
+    val target: Target,
+    val obj: Value,
+    val args: List<Ref>
+) : Instruction(Opcode.InvokeConstructor), TargetValue {
+    override fun size(): Int = target.size() + obj.size() + args.sumOf { it.size() }
+    override fun write(out: DataOutputStream) {
+        out.writeByte(code)
+        target.write(out)
+        obj.write(out)
+        out.writeShort(args.size)
+        args.forEach { it.write(out) }
+    }
+
+    override fun toString(): String {
+        return "$target = $obj.<init>(${args.joinToString(", ")})"
+    }
+}
+
+data class Closure (
+    val target: Target,
+    val func: MethodRef,
+    val captured: List<Ref>
+) : Instruction(Opcode.Closure), TargetValue {
+    override fun size(): Int = target.size() + func.size() + captured.sumOf { it.size() }
+    override fun write(out: DataOutputStream) {
+        out.writeByte(code)
+        target.write(out)
+        func.write(out)
+        out.writeShort(captured.size)
+        captured.forEach { it.write(out) }
+    }
+
+    override fun toString(): String {
+        return "$target = closure $func ${captured.joinToString(", ")}"
+    }
+}
+
+data class New (
+    val target: Target,
+    val classRef: TypeRef
+) : Instruction(Opcode.New), TargetValue {
+    override fun size(): Int = target.size() + classRef.size()
+    override fun write(out: DataOutputStream) {
+        out.writeByte(code)
+        target.write(out)
+        classRef.write(out)
+    }
+
+    override fun toString(): String {
+        return "$target = new $classRef"
+    }
+}
+
+data class NewArray (
+    val target: Target,
+    val elementType: TypeRef,
+    val sizeRef: Value
+) : Instruction(Opcode.NewArray), TargetValue {
+    override fun size(): Int = target.size() + elementType.size() + sizeRef.size()
+    override fun write(out: DataOutputStream) {
+        out.writeByte(code)
+        target.write(out)
+        elementType.write(out)
+        sizeRef.write(out)
+    }
+
+    override fun toString(): String {
+        return "$target = $elementType[$sizeRef]"
+    }
+}
+
+data class GetField (
+    val target: Target,
+    val obj: Ref,
+    val field: FieldRef
+) : Instruction(Opcode.GetField), TargetValue {
+    override fun size(): Int = target.size() + obj.size() + field.size()
+    override fun write(out: DataOutputStream) {
+        out.writeByte(code)
+        target.write(out)
+        obj.write(out)
+        field.write(out)
+    }
+
+    override fun toString(): String {
+        return "$target = $obj.$field"
+    }
+}
+
+data class PutField (
+    val obj: Ref,
+    val field: FieldRef,
+    val value: Ref
+) : Instruction(Opcode.PutField) {
+    override fun size(): Int = obj.size() + field.size() + value.size()
+    override fun write(out: DataOutputStream) {
+        out.writeByte(code)
+        obj.write(out)
+        field.write(out)
+        value.write(out)
+    }
+
+    override fun toString(): String {
+        return "$obj.$field = $value"
+    }
+}
+
+data class GetMethod (
+    val target: Target,
+    val obj: Ref,
+    val method: MethodRef
+) : Instruction(Opcode.GetMethod), TargetValue {
+    override fun size(): Int = target.size() + method.size()
+
+    override fun write(out: DataOutputStream) {
+        out.writeByte(code)
+        target.write(out)
+        obj.write(out)
+        method.write(out)
+    }
+
+    override fun toString(): String {
+        return "$target = $obj.$method"
+    }
+}
+
+data class GetMethodStatic (
+    val target: Target,
+    val method: MethodRef
+) : Instruction(Opcode.GetMethodStatic), TargetValue {
+    override fun size(): Int = target.size() + method.size()
+
+    override fun write(out: DataOutputStream) {
+        out.writeByte(code)
+        target.write(out)
+        method.write(out)
+    }
+
+    override fun toString(): String {
+        return "$target = $method"
+    }
+}
+
+data class GetStatic (
+    val target: Target,
+    val field: FieldRef
+) : Instruction(Opcode.GetStatic), TargetValue {
+    override fun size(): Int = target.size() + field.size()
+    override fun write(out: DataOutputStream) {
+        out.writeByte(code)
+        target.write(out)
+        field.write(out)
+    }
+
+    override fun toString(): String {
+        return "$target = $field"
+    }
+}
+
+data class PutStatic (
+    val field: FieldRef,
+    val value: Ref
+) : Instruction(Opcode.PutStatic) {
+    override fun size(): Int = field.size() + value.size()
+    override fun write(out: DataOutputStream) {
+        out.writeByte(code)
+        field.write(out)
+        value.write(out)
+    }
+
+    override fun toString(): String {
+        return "$field = $value"
+    }
+}
+
+/// Get value from array
+data class ArrayLoad (
+    val target: Target,
+    val array: Value,
+    val index: Value
+) : Instruction(Opcode.ArrayLoad), TargetValue {
+    override fun size(): Int = target.size() + array.size() + index.size()
+    override fun write(out: DataOutputStream) {
+        out.writeByte(code)
+        target.write(out)
+        array.write(out)
+        index.write(out)
+    }
+
+    override fun toString(): String {
+        return "$target = $array[$index]"
+    }
+}
+
+data class ArrayStore (
+    val array: Value,
+    val index: Value,
+    val value: Value
+) : Instruction(Opcode.ArrayStore) {
+    override fun size(): Int = array.size() + index.size() + value.size()
+    override fun write(out: DataOutputStream) {
+        out.writeByte(code)
+        array.write(out)
+        index.write(out)
+        value.write(out)
+    }
+
+    override fun toString(): String {
+        return "$array[$index] = $value"
+    }
+}
+
+data class Cast (
+    val target: Target,
+    val ref: Ref,
+    val type: TypeRef
+) : Instruction(Opcode.Cast), TargetValue {
+    override fun size(): Int = target.size() + ref.size() + type.size()
+    override fun write(out: DataOutputStream) {
+        out.writeByte(code)
+        target.write(out)
+        ref.write(out)
+        type.write(out)
+    }
+
+    override fun toString(): String {
+        return "$target = $ref as $type"
+    }
+}
+
+data class InstanceOf (
+    val target: Target,
+    val ref: Ref,
+    val type: TypeRef
+) : Instruction(Opcode.InstanceOf), TargetValue {
+    override fun size(): Int = target.size() + ref.size() + type.size()
+    override fun write(out: DataOutputStream) {
+        out.writeByte(code)
+        target.write(out)
+        ref.write(out)
+        type.write(out)
+    }
+
+    override fun toString(): String {
+        return "$target = $ref is $type"
+    }
+}
+
+data class TypeOf (
+    val target: Target,
+    val ref: Ref
+) : Instruction(Opcode.TypeOf), TargetValue {
+    override fun size(): Int = target.size() + ref.size()
+    override fun write(out: DataOutputStream) {
+        out.writeByte(code)
+        target.write(out)
+        ref.write(out)
+    }
+
+    override fun toString(): String {
+        return "$target = typeof($ref)"
+    }
+}
+
+data class LabelInst (
+    val label: Label
+) : Instruction(Opcode.Label) {
+    override fun size(): Int = label.size()
+    override fun write(out: DataOutputStream) {
+        out.writeByte(code)
+        label.write(out)
+    }
+
+    override fun toString(): String {
+        return "$label:"
+    }
+}
+
+data class Switch (
+    val ref: Ref,
+    val cases: Map<Ref, Label>, // case : label
+    val defaultLabel: Label
+) : Instruction(Opcode.Switch) {
+    override fun size(): Int = ref.size() + cases.entries.sumOf { 4 + it.value.size() } + defaultLabel.size()
+    override fun write(out: DataOutputStream) {
+        out.writeByte(code)
+        ref.write(out)
+        out.writeShort(cases.size)
+        for ((value, label) in cases) {
+            value.write(out)
+            label.write(out)
         }
-        Return.code -> Return(input.readByte().toInt())
-        Const.code -> Const(
-            input.readByte().toInt(),
-            input.readByte().toInt(),
-            input.readByte().toInt()
-        )
-        Load.code -> Load(
-            input.readByte().toInt(),
-            input.readByte().toInt()
-        )
-        BinOp.code -> BinOp(
-            input.readByte().toInt(),
-            input.readByte().toInt(),
-            input.readByte().toInt(),
-            input.readByte().toInt()
-        )
-        Call.code -> {
-            val target = input.readByte()
-            val fnRef = input.readByte()
+        defaultLabel.write(out)
+    }
 
-            val argC = input.readByte()
-            val args: MutableList<Int> = mutableListOf()
-            repeat(argC.toInt()) {
-                args += input.readByte().toInt()
-            }
-            return Call(
-                target.toInt(),
-                fnRef.toInt(),
-                args.toList()
-            )
+    override fun toString(): String {
+        return "switch $ref ${cases.toList().joinToString("\n    ", prefix = "\n    ") { "${it.first} : ${it.second}" }}"
+    }
+}
+
+data class Phi (
+    val target: Target,
+    val incoming: Map<Label, Reference>
+) : Instruction(Opcode.Phi), TargetValue {
+    override fun size(): Int = target.size() + incoming.entries.sumOf { it.key.size() + it.value.size() }
+    override fun write(out: DataOutputStream) {
+        out.writeByte(code)
+        target.write(out)
+        out.writeShort(incoming.size)
+        for ((label, ref) in incoming) {
+            label.write(out)
+            ref.write(out)
         }
-        Closure.code -> {
-            val target = input.readByte()
-            val lambdaRef = input.readByte()
+    }
 
-            val envC = input.readByte()
-            val envs: MutableList<Int> = mutableListOf()
-            repeat(envC.toInt()) {
-                envs += input.readByte().toInt()
-            }
-            return Closure(
-                target.toInt(),
-                lambdaRef.toInt(),
-                envs.toList()
-            )
-        }
-        New.code -> New(
-            input.readByte().toInt(),
-            input.readByte().toInt(),
-        )
-        GetField.code -> GetField(
-            input.readByte().toInt(),
-            input.readByte().toInt(),
-            input.readByte().toInt(),
-        )
-        SetField.code -> SetField(
-            input.readByte().toInt(),
-            input.readByte().toInt(),
-            input.readByte().toInt(),
-        )
-        CallMethod.code -> {
-            val target = input.readByte()
-            val objRef = input.readByte()
+    override fun toString(): String {
+        return "$target = phi(${incoming.toList().joinToString("\n  ") { "${it.first}: ${it.second}" }})"
+    }
+}
 
-            val methodRef = input.readByte()
+object Nop : Instruction(Opcode.Nop) {
+    override fun size(): Int = 1
 
-            val argC = input.readByte()
-            val args: MutableList<Int> = mutableListOf()
-            repeat(argC.toInt()) {
-                args += input.readByte().toInt()
-            }
-            return CallMethod(
-                target.toInt(),
-                objRef.toInt(),
-                methodRef.toInt(),
-                args.toList()
-            )
-        }
-        else -> Nop
+    override fun write(out: DataOutputStream) {
+        out.writeByte(code)
+    }
+
+    override fun toString(): String {
+        return "nop"
     }
 }
