@@ -5,15 +5,20 @@ import lang.aurum.model.*
 import lang.aurum.model.impl.*
 import java.lang.reflect.AccessFlag
 import java.util.*
+import kotlin.jvm.optionals.getOrNull
 
 object MutableTypePool {
     private val pool1: MutableMap<Pair<String, List<TypeArgument>?>, MutableType> = mutableMapOf() // fullname to type
+
+    fun contains(className: String, pkg: String, typeArgument: List<TypeArgument>? = null): Boolean {
+        return pool1.containsKey("$pkg.$className" to typeArgument)
+    }
 
     fun get(
         className: String,
         pkg: String,
         superClass: Type? = Type.ofClass(Object::class.java),
-        interfaces: MutableList<out Type>? = mutableListOf(),
+        interfaces: MutableList<Type>? = mutableListOf(),
         fields: MutableList<Field> = mutableListOf(),
         methods: MutableList<Method> = mutableListOf(),
         accessFlags: MutableList<AccessFlag> = mutableListOf(),
@@ -48,7 +53,7 @@ open class MutableType (
     val className: String,
     val pkg: String,
     var superClass: Type? = Type.ofClass(Object::class.java),
-    var interfaces: MutableList<out Type>? = mutableListOf(),
+    var interfaces: MutableList<Type>? = mutableListOf(),
     var fields: MutableList<Field> = mutableListOf(),
     var methods: MutableList<Method> = mutableListOf(),
     var accessFlags: MutableList<AccessFlag> = mutableListOf(),
@@ -63,8 +68,16 @@ open class MutableType (
     override fun pkg(): String = pkg
     override fun superClass(): Type? = superClass
     override fun interfaces(): Optional<Array<out Type>> = Optional.ofNullable(interfaces?.toTypedArray())
-    override fun fields(): Array<out Field> = fields.toTypedArray()
-    override fun methods(): Array<out Method> = methods.toTypedArray()
+    override fun fields(): Array<out Field> {
+        val type = this // .withTypeArguments(typeArguments?.toTypedArray() ?: arrayOf())
+        return (type.fields + (type.superClass?.fields()?.toMutableList() ?: mutableListOf())).toTypedArray()
+    }
+    override fun methods(): Array<out Method> {
+        val type = this // .withTypeArguments(typeArguments?.toTypedArray() ?: arrayOf())
+        return type.methods.toTypedArray() +
+                (type.superClass?.methods() ?: arrayOf()) +
+                (type.interfaces?.map(Type::methods)?.flatMap(Array<Method>::toList) ?: listOf())
+    }
     override fun accessFlags(): Array<out AccessFlag> = accessFlags.toTypedArray()
     override fun attributes(): Array<out Attribute> = attributes.toTypedArray()
     override fun typeParameters(): Optional<Array<out TypeParameter>> = Optional.ofNullable(typeParameters?.toTypedArray())
@@ -77,11 +90,34 @@ open class MutableType (
         return MutableArrayType(this, dimensions)
     }
 
-    override fun withTypeArguments(typeArguments: Array<out TypeArgument>): MutableType {
-        return Utils.applyTypeArguments(this, typeArguments).toMutable()
+    override fun withTypeArguments(typeArguments: Array<out TypeArgument>): Type {
+        return Utils.applyTypeArguments(this, typeArguments)
     }
-    override fun withTypeArguments(typeArguments: Array<out Type>): MutableType {
-        return Utils.applyTypeArguments(this, typeArguments).toMutable()
+    override fun withTypeArguments(typeArguments: Array<out Type>): Type {
+        return Utils.applyTypeArguments(this, typeArguments)
+    }
+
+    fun applyTypeArguments(vararg typeArguments: TypeArgument) {
+        val newType = Utils.applyTypeArguments(this, typeArguments)
+
+        copyFrom(newType)
+    }
+
+    fun applyTypeArguments(vararg types: Type) {
+        val newType = Utils.applyTypeArguments(this, types)
+
+        copyFrom(newType)
+    }
+
+    private fun copyFrom(newType: Type) {
+        this.superClass = newType.superClass()
+        this.interfaces = newType.interfaces().getOrNull()?.toMutableList()
+        this.fields = newType.fields().toMutableList()
+        this.methods = newType.methods().toMutableList()
+        this.accessFlags = newType.accessFlags().toMutableList()
+        this.attributes = newType.attributes().toMutableList()
+        this.typeParameters = newType.typeParameters().getOrNull()?.toMutableList()
+        this.typeArguments = newType.typeArguments().getOrNull()?.toMutableList()
     }
 }
 
@@ -156,11 +192,35 @@ data class MutableMethod (
     override fun typeArguments(): Optional<Array<out TypeArgument>> = Optional.ofNullable(typeArguments?.toTypedArray())
     override fun attributes(): Array<out Attribute> = attributes.toTypedArray()
 
-    override fun withTypeArguments(typeArguments: Array<out TypeArgument>): MutableMethod {
-        return Utils.applyTypeArguments(this, owner, typeArguments).toMutable()
+    override fun withTypeArguments(typeArguments: Array<out TypeArgument>): Method {
+        return Utils.applyTypeArguments(this, owner, typeArguments)
     }
-    override fun withTypeArguments(typeArguments: Array<out Type>): MutableMethod {
-        return Utils.applyTypeArguments(this, owner, typeArguments).toMutable()
+    override fun withTypeArguments(typeArguments: Array<out Type>): Method {
+        return Utils.applyTypeArguments(this, owner, typeArguments)
+    }
+
+    fun applyTypeArguments(vararg typeArguments: TypeArgument) {
+        val newMethod = this.withTypeArguments(typeArguments)
+
+        copyFrom(newMethod)
+    }
+
+    fun applyTypeArguments(vararg types: Type) {
+        val newMethod = this.withTypeArguments(types)
+
+        copyFrom(newMethod)
+    }
+
+    private fun copyFrom(newMethod: Method) {
+        this.owner = newMethod.owner()
+        this.name = newMethod.name()
+        this.returnType = newMethod.returnType()
+        this.parameters = newMethod.parameters().toMutableList()
+        this.exceptions = newMethod.exceptions().toMutableList()
+        this.accessFlags = newMethod.accessFlags().toMutableList()
+        this.typeParameters = newMethod.typeParameters().getOrNull()?.toMutableList()
+        this.typeArguments = newMethod.typeArguments().getOrNull()?.toMutableList()
+        this.attributes = newMethod.attributes().toMutableList()
     }
 }
 
@@ -249,8 +309,8 @@ fun Method.toMutable(): MutableMethod {
         this.parameters().toMutableList(),
         this.exceptions().toMutableList(),
         this.accessFlags().toMutableList(),
-        this.typeParameters().orElse(null)?.toMutableList(),
-        this.typeArguments().orElse(null)?.toMutableList(),
+        this.typeParameters().orElse(Utils.EMPTY_TYPE_PARAMETERS).toMutableList(),
+        this.typeArguments().orElse(Utils.EMPTY_TYPE_ARGUMENTS).toMutableList(),
         this.attributes().toMutableList()
     )
 }
@@ -265,8 +325,8 @@ fun Type.toMutable(): MutableType {
         this.methods().toMutableList(),
         this.accessFlags().toMutableList(),
         this.attributes().toMutableList(),
-        this.typeParameters().orElse(null)?.toMutableList(),
-        this.typeArguments().orElse(null)?.toMutableList(),
+        this.typeParameters().orElse(Utils.EMPTY_TYPE_PARAMETERS).toMutableList(),
+        this.typeArguments().orElse(Utils.EMPTY_TYPE_ARGUMENTS).toMutableList(),
         this.isPrimitive
     )
 }
