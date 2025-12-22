@@ -5,16 +5,18 @@ sealed interface Operator {
     val precedence: Int
     val associativity: Associativity
     val defaultOpcode: Opcode?
+    val isBinary: Boolean
 }
 
-data class CustomOpeartor(
+data class CustomOperator (
     override val symbol: String,
     override val precedence: Int,
     override val associativity: Associativity = Associativity.LEFT_TO_RIGHT,
+    override val isBinary: Boolean = true,
     override val defaultOpcode: Opcode? = null
 ) : Operator
 
-enum class BinaryOperator(
+enum class BinaryOperator (
     override val symbol: String,
     override val precedence: Int,
     override val associativity: Associativity,
@@ -40,9 +42,11 @@ enum class BinaryOperator(
     B_OR   ("|"  , 5*10 , Associativity.LEFT_TO_RIGHT, Opcode.Or        ),
     AND    ("&&" , 4*10 , Associativity.LEFT_TO_RIGHT, Opcode.And       ),
     OR     ("||" , 3*10 , Associativity.LEFT_TO_RIGHT, Opcode.Or        );
+
+    override val isBinary: Boolean = true
 }
 
-enum class UnaryOperator(
+enum class UnaryOperator (
     override val symbol: String,
     override val precedence: Int,
     override val associativity: Associativity,
@@ -56,6 +60,8 @@ enum class UnaryOperator(
     MINUS   ("-" , 13*10, Associativity.LEFT_TO_RIGHT, Opcode.Neg),
     NEG     ("!" , 13*10, Associativity.LEFT_TO_RIGHT, Opcode.Neg),
     COMPL   ("~" , 13*10, Associativity.LEFT_TO_RIGHT, Opcode.Neg);
+
+    override val isBinary: Boolean = false
 }
 
 /**
@@ -63,6 +69,11 @@ enum class UnaryOperator(
  * LEFT_TO_RIGHT means that this operator is prefix and RIGHT_TO_LEFT means that this operator is postfix
  */
 enum class Associativity {
-    RIGHT_TO_LEFT, LEFT_TO_RIGHT
+    RIGHT_TO_LEFT, LEFT_TO_RIGHT;
+
+    companion object {
+        val PREFIX = LEFT_TO_RIGHT
+        val POSTFIX = RIGHT_TO_LEFT
+    }
 }
 
