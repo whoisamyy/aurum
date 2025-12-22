@@ -1,8 +1,5 @@
 package lang.aurum.parsing.stages
 
-import lang.aurum.model.Field
-import lang.aurum.model.Member
-import lang.aurum.model.Method
 import lang.aurum.model.PrimitiveType
 import lang.aurum.model.Type
 import lang.aurum.parsing.Argument
@@ -10,10 +7,13 @@ import lang.aurum.parsing.antlr.AurumLexer
 import lang.aurum.parsing.antlr.AurumParser
 import lang.aurum.parsing.model.ConstantPool
 import lang.aurum.parsing.model.MutableType
+import lang.aurum.parsing.model.MutableTypePool
 import org.antlr.v4.runtime.CharStreams
 import org.antlr.v4.runtime.CommonTokenStream
 import org.antlr.v4.runtime.ParserRuleContext
+import java.lang.reflect.AccessFlag
 import java.nio.file.Path
+import kotlin.io.path.nameWithoutExtension
 
 abstract class AbstractParsingContext
 
@@ -22,7 +22,11 @@ data class ParsingContext (
     val classPath: Set<Path>,
     val arguments: Set<Argument>,
     val files: LinkedHashSet<FileContext>
-) : AbstractParsingContext()
+) : AbstractParsingContext() {
+    override fun toString(): String {
+        return "ParsingContext(workDir=$workDir, classPath=$classPath, arguments=$arguments, files=$files)"
+    }
+}
 
 data class FileContext (
     val parsingContext: ParsingContext,
@@ -30,33 +34,36 @@ data class FileContext (
     val pkg: String,
     val ctx: AurumParser.ProgramContext,
 ) : AbstractParsingContext() {
-    val typeImportMap: MutableMap<String, Type> = mutableMapOf(
-        "void" to PrimitiveType.VOID,
-        "bool" to PrimitiveType.BOOLEAN,
-        "byte" to PrimitiveType.BYTE,
-        "short" to PrimitiveType.SHORT,
-        "char" to PrimitiveType.CHAR,
-        "int" to PrimitiveType.INT,
-        "float" to PrimitiveType.FLOAT,
-        "long" to PrimitiveType.LONG,
-        "double" to PrimitiveType.DOUBLE,
-        "string" to Type.ofClass(String::class.java),
-        "object" to Type.ofClass(Object::class.java)
+    val importMap: ImportMap = ImportMap(
+        mutableMapOf(
+            "void" to PrimitiveType.VOID,
+            "bool" to PrimitiveType.BOOLEAN,
+            "byte" to PrimitiveType.BYTE,
+            "short" to PrimitiveType.SHORT,
+            "char" to PrimitiveType.CHAR,
+            "int" to PrimitiveType.INT,
+            "float" to PrimitiveType.FLOAT,
+            "long" to PrimitiveType.LONG,
+            "double" to PrimitiveType.DOUBLE,
+            "string" to Type.ofClass(String::class.java),
+            "object" to Type.ofClass(Object::class.java)
+        )
     )
-    val methodImportMap: MutableMap<String, Method> = mutableMapOf()
-    val fieldImportMap: MutableMap<String, Field> = mutableMapOf()
     val classes: MutableMap<Type, TypeDeclCtx<*>> = mutableMapOf()
-    val members: MutableList<Pair<Member, MemberDeclCtx<*>>> = mutableListOf()
-    val typeDefs: MutableList<Pair<String, Type>> = mutableListOf()
+    val typeDefs: MutableMap<String, Type> = mutableMapOf()
     val externalLinks: MutableSet<Path> = mutableSetOf()
 
-    lateinit var fileClass: MutableType
-    lateinit var constantPool: ConstantPool
+    val fileClass: MutableType = MutableTypePool.get(
+        path.nameWithoutExtension,
+        pkg,
+        accessFlags = mutableListOf(AccessFlag.PUBLIC, AccessFlag.FINAL)
+    )
 
-    fun initializeConstantPool() {
-        if (!::constantPool.isInitialized)
-            this.constantPool = ConstantPool()
+    init {
+        classes += fileClass to FileClassDeclCtx(ctx.declaration())
     }
+
+    val constantPool: ConstantPool = ConstantPool()
 
     companion object {
         /**
@@ -73,9 +80,7 @@ data class FileContext (
         }
     }
 
-    override fun toString(): String {
-        return "FileContext(typeDefs=$typeDefs, members=$members, classes=$classes, fieldImportMap=$fieldImportMap, methodImportMap=$methodImportMap, typeImportMap=$typeImportMap, ctx=$ctx, pkg='$pkg', path=$path, fileClass=$fileClass)"
-    }
+    override fun toString(): String = "$path"
 }
 
 private val parserCache: MutableMap<Path, AurumParser.ProgramContext> = mutableMapOf()
