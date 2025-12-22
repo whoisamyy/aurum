@@ -4,15 +4,24 @@ import lang.aurum.ir.*
 import lang.aurum.parsing.stages.FileContext
 
 object CopyPropagation : OptimizationPass {
+    private data class BoundSource(val value: RValue, val owner: RValue)
+
     override fun run(fileCtx: FileContext, instructions: MutableList<Instruction>): Boolean {
         var changed = false
-        val copyMap = mutableMapOf<String, Ref>() // Target.name -> Ref
+        val copyMap = mutableMapOf<String, Any>()
 
         @Suppress("UNCHECKED_CAST")
-        fun <T : Ref> substitute(ref: T): T = when (ref) {
-            is Reference -> copyMap[ref.name] ?: ref
-            else -> ref
-        } as T
+        fun <T : RValue> substitute(ref: T): T {
+            if (ref !is Reference) return ref
+
+            val mapped = copyMap[ref.name] ?: return ref
+
+            return when (mapped) {
+                is RValue -> mapped as T
+                is BoundSource -> mapped.value as T 
+                else -> ref
+            }
+        }
 
         for (i in instructions.indices) {
             when (val inst = instructions[i]) {
@@ -20,6 +29,42 @@ object CopyPropagation : OptimizationPass {
                     val newRef = substitute(inst.field)
                     copyMap[inst.target.name] = newRef
                     instructions[i] = inst.copy(field = newRef)
+                }
+
+                is GetMember -> {
+                    val newObj = substitute(inst.obj)
+                    val newMember = substitute(inst.member)
+                    if (newObj != inst.obj || newMember != inst.member) {
+                        instructions[i] = inst.copy(obj = newObj, member = newMember)
+                        changed = true
+                    }
+                    
+                    copyMap[inst.target.name] = BoundSource(instructions[i].let {  it as? RValue ?: Reference(inst.target) }, newObj)
+                    copyMap[inst.target.name] = BoundSource(Reference(inst.target), newObj)
+                }
+
+                is GetMethod -> {
+                    val newObj = substitute(inst.obj)
+                    val newMethod = substitute(inst.method)
+                    
+                    copyMap[inst.target.name] = BoundSource(newMethod, newObj)
+
+                    if (newObj != inst.obj || newMethod != inst.method) {
+                        instructions[i] = inst.copy(obj = newObj, method = newMethod)
+                        changed = true
+                    }
+                }
+
+                is GetField -> {
+                    val newObj = substitute(inst.obj)
+                    val newField = substitute(inst.field)
+                    
+                    copyMap[inst.target.name] = BoundSource(Reference(inst.target), newObj)
+
+                    if (newObj != inst.obj || newField != inst.field) {
+                        instructions[i] = inst.copy(obj = newObj, field = newField)
+                        changed = true
+                    }
                 }
 
                 is GetMethodStatic -> {
@@ -33,9 +78,15 @@ object CopyPropagation : OptimizationPass {
                 }
 
                 is Move -> {
-                    // a = Move(b)
-                    val newRef = substitute(inst.ref)
-                    copyMap[inst.target.name] = newRef
+                    val ref = inst.ref
+                    val newRef = substitute(ref)
+                    
+                    val rawRef = if (ref is Reference) copyMap[ref.name] else null
+                    if (rawRef is BoundSource) {
+                        copyMap[inst.target.name] = rawRef 
+                    } else {
+                        copyMap[inst.target.name] = newRef
+                    }
                     instructions[i] = inst.copy(ref = newRef)
                 }
 
@@ -45,6 +96,7 @@ object CopyPropagation : OptimizationPass {
                     if (newFunc != inst.func || newCaptures != inst.captured) {
                         instructions[i] = inst.copy(func = newFunc, captured = newCaptures)
                     }
+                    copyMap[inst.target.name] = instructions[i]
                 }
 
                 is New -> {
@@ -53,6 +105,7 @@ object CopyPropagation : OptimizationPass {
                         instructions[i] = inst.copy(classRef = newClassRef)
                         changed = true
                     }
+                    copyMap[inst.target.name] = instructions[i]
                 }
 
                 is NewArray -> {
@@ -62,6 +115,7 @@ object CopyPropagation : OptimizationPass {
                         instructions[i] = inst.copy(elementType = newElementType, sizeRef = newSizeRef)
                         changed = true
                     }
+                    copyMap[inst.target.name] = instructions[i]
                 }
 
                 is BinaryOp -> {
@@ -71,6 +125,7 @@ object CopyPropagation : OptimizationPass {
                         instructions[i] = inst.copy(left = newLeft, right = newRight)
                         changed = true
                     }
+                    copyMap[inst.target.name] = instructions[i]
                 }
 
                 is Neg -> {
@@ -79,6 +134,7 @@ object CopyPropagation : OptimizationPass {
                         instructions[i] = inst.copy(ref = newRef)
                         changed = true
                     }
+                    copyMap[inst.target.name] = instructions[i]
                 }
 
                 is JumpIf -> {
@@ -113,12 +169,28 @@ object CopyPropagation : OptimizationPass {
                         changed = true
                     }
                 }
-
                 is CallMethod -> {
                     val newMethod = substitute(inst.method)
-                    val newObj = substitute(inst.obj)
                     val newArgs = inst.args.map { substitute(it) }
-                    if (newObj != inst.obj || newArgs != inst.args || newMethod != inst.method) {
+
+                    
+                    val obj = inst.obj
+                    val rawObjEntry = if (obj is Reference) copyMap[obj.name] else null
+
+                    val optimizationOwner = if (rawObjEntry is BoundSource) rawObjEntry.owner else null
+
+                    val newObj = substitute(obj)
+
+                    if (optimizationOwner != null && newObj is MethodRef) {
+                        instructions[i] = CallMethod(inst.target, optimizationOwner, newMethod, newArgs)
+                        changed = true
+                    } else if (newObj == newMethod) {
+                        instructions[i] = Call(inst.target, newMethod, newArgs)
+                        changed = true
+                    } else if (newObj is MethodGroupRef) {
+                        instructions[i] = Call(inst.target, newMethod, newArgs)
+                        changed = true
+                    } else if (newObj != obj || newArgs != inst.args || newMethod != inst.method) {
                         instructions[i] = inst.copy(obj = newObj, args = newArgs, method = newMethod)
                         changed = true
                     }
@@ -126,9 +198,25 @@ object CopyPropagation : OptimizationPass {
 
                 is CallVirtual -> {
                     val newMethod = substitute(inst.method)
-                    val newObj = substitute(inst.obj)
                     val newArgs = inst.args.map { substitute(it) }
-                    if (newObj != inst.obj || newArgs != inst.args || newMethod != inst.method) {
+
+                    val obj = inst.obj
+                    val rawObjEntry = if (obj is Reference) copyMap[obj.name] else null
+
+                    val optimizationOwner = if (rawObjEntry is BoundSource) rawObjEntry.owner else null
+
+                    val newObj = substitute(obj)
+
+                    if (optimizationOwner != null && newObj is MethodRef) {
+                        instructions[i] = CallVirtual(inst.target, optimizationOwner, newMethod, newArgs)
+                        changed = true
+                    } else if (newObj == newMethod) {
+                        instructions[i] = Call(inst.target, newMethod, newArgs)
+                        changed = true
+                    } else if (newObj is MethodGroupRef) {
+                        instructions[i] = Call(inst.target, newMethod, newArgs)
+                        changed = true
+                    } else if (newObj != obj || newArgs != inst.args || newMethod != inst.method) {
                         instructions[i] = inst.copy(obj = newObj, args = newArgs, method = newMethod)
                         changed = true
                     }
@@ -141,23 +229,9 @@ object CopyPropagation : OptimizationPass {
                         instructions[i] = inst.copy(obj = newObj, args = newArgs)
                         changed = true
                     }
+                    copyMap[inst.target.name] = instructions[i]
                 }
 
-                is GetMethod -> {
-                    val newObj = substitute(inst.obj)
-                    if (newObj != inst.obj) {
-                        instructions[i] = inst.copy(obj = newObj)
-                        changed = true
-                    }
-                }
-
-                is GetField -> {
-                    val newObj = substitute(inst.obj)
-                    if (newObj != inst.obj) {
-                        instructions[i] = inst.copy(obj = newObj)
-                        changed = true
-                    }
-                }
 
                 is PutStatic -> {
                     val newVal = substitute(inst.value)
@@ -183,6 +257,7 @@ object CopyPropagation : OptimizationPass {
                         instructions[i] = inst.copy(array = newArr, index = newIdx)
                         changed = true
                     }
+                    copyMap[inst.target.name] = instructions[i]
                 }
 
                 is ArrayStore -> {
@@ -201,6 +276,7 @@ object CopyPropagation : OptimizationPass {
                         instructions[i] = inst.copy(ref = newRef)
                         changed = true
                     }
+                    copyMap[inst.target.name] = instructions[i]
                 }
 
                 is InstanceOf -> {
@@ -209,6 +285,7 @@ object CopyPropagation : OptimizationPass {
                         instructions[i] = inst.copy(ref = newRef)
                         changed = true
                     }
+                    copyMap[inst.target.name] = instructions[i]
                 }
 
                 is TypeOf -> {
@@ -217,6 +294,7 @@ object CopyPropagation : OptimizationPass {
                         instructions[i] = inst.copy(ref = newRef)
                         changed = true
                     }
+                    copyMap[inst.target.name] = instructions[i]
                 }
 
                 is Phi -> {
@@ -227,9 +305,9 @@ object CopyPropagation : OptimizationPass {
                         instructions[i] = inst.copy(incoming = newIncoming)
                         changed = true
                     }
+                    copyMap[inst.target.name] = instructions[i]
                 }
 
-                // инструкции без ссылок (Label, Jump, Nop, TryEnd, etc.) пропускаем
                 else -> {}
             }
         }

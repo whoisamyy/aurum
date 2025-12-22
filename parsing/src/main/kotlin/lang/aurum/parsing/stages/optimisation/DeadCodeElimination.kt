@@ -26,6 +26,9 @@ object DeadCodeElimination : OptimizationPass {
                 is CallVirtual -> inst.target.name
                 is InvokeConstructor -> inst.target.name
                 is Closure -> inst.target.name
+                is GetMember -> inst.target.name
+                is GetMethod -> inst.target.name
+                is GetMethodStatic -> inst.target.name
                 is GetField -> inst.target.name
                 is GetStatic -> inst.target.name
                 is ArrayLoad -> inst.target.name
@@ -80,10 +83,10 @@ object DeadCodeElimination : OptimizationPass {
     ): MutableSet<String> {
         val used: MutableSet<String> = mutableSetOf()
 
-        fun addRef(ref: Ref?) {
+        fun addRef(ref: RValue?) {
             when (ref) {
                 is Reference -> used.add(ref.name)
-                is Value -> {} // ignore constant pool refs, labels
+                is RValue -> {} // ignore constant pool refs, labels
                 else -> {}
             }
         }
@@ -114,11 +117,14 @@ object DeadCodeElimination : OptimizationPass {
                 }
 
                 is Closure -> inst.captured.forEach(::addRef)
+                is GetMember -> addRef(inst.obj)
+                is GetMethod -> addRef(inst.obj)
                 is GetField -> addRef(inst.obj)
                 is PutField -> {
                     addRef(inst.obj); addRef(inst.value)
                 }
 
+                is GetMethodStatic -> {}
                 is GetStatic -> {}
                 is PutStatic -> addRef(inst.value)
                 is ArrayLoad -> {
