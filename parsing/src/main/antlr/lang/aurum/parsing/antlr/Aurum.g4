@@ -29,7 +29,7 @@ declaration
     ;
 
 extensionDecl
-    : decorator* modifier* ':' typeExpr '{' ENDLINE* extensionMember* '}'
+    : decorator* modifier* ':' typeExpr ('[' genericTypeList ']')? '{' ENDLINE* extensionMember* '}'
     ;
 
 extensionMember
@@ -45,11 +45,15 @@ typeDef
 
 
 interfaceDecl
-    : decorator* modifier* 'interface' Identifier ('[' genericTypeList ']')? (':' qualifiedNameList)? '{' ENDLINE* (funcSign ENDLINE+)* '}'
+    : decorator* modifier* 'interface' Identifier ('[' genericTypeList ']')? (':' typeExprList)? '{' ENDLINE* (funcSign ENDLINE+)* '}'
     ;
 
 funcSign
     : decorator* modifier* 'fn' Identifier ('[' genericTypeList ']')? ('(' paramList? ')' | EmptyBraces) returnType?
+    ;
+
+constructorDecl
+    : decorator* modifier* 'init' ('[' genericTypeList ']')? ('(' paramList? ')' | EmptyBraces) block
     ;
 
 modifier
@@ -71,7 +75,19 @@ decorator
     ;
 
 classDecl
-    : decorator* modifier* 'class' Identifier ('[' genericTypeList ']')? ('(' paramList? ')')? (':' qualifiedNameList)? '{' ENDLINE* (memberDecl ENDLINE+)* '}'
+    : decorator* modifier* 'class' Identifier ('[' genericTypeList ']')? ('(' defaultConstructorParamList? ')')? (':' typeExprList)? '{' ENDLINE* (memberDecl ENDLINE+)* '}'
+    ;
+
+typeExprList
+    : typeExpr (',' typeExpr)*
+    ;
+
+defaultConstructorParamList
+    : defaultConstructorParam (',' defaultConstructorParam)*
+    ;
+
+defaultConstructorParam
+    : decorator* modifier* 'let'? Identifier ':' typeExpr
     ;
 
 decoratorDecl
@@ -85,7 +101,9 @@ qualifiedNameList
 memberDecl
     : varDecl
     | funcDecl
+    | constructorDecl
     | operatorDecl
+    | funcSign
     ;
 
 varDecl
@@ -103,7 +121,7 @@ varId
     ;
 
 operatorDecl
-    : decorator* modifier* 'operator' OperatorSymbol ('[' genericTypeList ']')? '(' paramList? ')' ':' typeExpr block
+    : decorator* modifier* 'operator' OperatorSymbol ('[' genericTypeList ']')? '(' paramList? ')' returnType block
     ;
 
 paramList
@@ -165,7 +183,8 @@ typePattern
     ;
 
 assignmentExpression
-    : qualifiedName OperatorSymbol?'=' expression
+    : qualifiedName OperatorSymbol?'=' expression # varAssignment
+    | expression indexAccessPart OperatorSymbol?'=' expression # arrayAssignment
     ;
 
 returnStatement
@@ -225,7 +244,7 @@ typeArgList
     ;
 
 typeParam
-    : Identifier (':' typeExpr (',' typeExpr)*?)
+    : Identifier (':' typeExpr)
     ;
 
 primaryType
@@ -262,10 +281,11 @@ expressionBlock
     ;
 
 lambdaExpr
-    : '(' lambdaParamList? ')' '=>' expression    # lambda
-    | '(' lambdaParamList? ')' '=>' statement     # lambda
-    | '(' lambdaParamList? ')' '=>' block         # lambda
-    | postfixExpr (binaryOp postfixExpr)*         # binary
+    : '(' lambdaParamList? ')' '=>' expression      # lambda
+    | '(' lambdaParamList? ')' '=>' expressionBlock # lambda
+    | '(' lambdaParamList? ')' '=>' statement       # lambda
+    | '(' lambdaParamList? ')' '=>' block           # lambda
+    | postfixExpr (binaryOp postfixExpr)*           # binary
     ;
 
 lambdaParamList
@@ -285,9 +305,13 @@ postfixPart
     : '.' Identifier                           # memberAccess
     | 'as' typeExpr                            # cast
     | '(' argList? ')'                         # functionCall
-    | '[' argList ']'                          # indexAccess
+    | indexAccessPart                          # indexAccess
     | EmptyBraces                              # functionCall
     | OperatorSymbol                           # operator
+    ;
+
+indexAccessPart
+    : '[' argList ']'
     ;
 
 prefixExpr
@@ -322,7 +346,7 @@ OperatorSymbol
     : '+' | '-' | '*' | '/' | '%' | '**'
     | '==' | '!=' | '<' | '>' | '<=' | '>='
     | 'as' | '[]' | EmptyBraces
-    | [+\-*/\\%$!?~;^<>]+
+    | [+\-*/\\%$!?~^<>]+
     ;
 
 Literal
