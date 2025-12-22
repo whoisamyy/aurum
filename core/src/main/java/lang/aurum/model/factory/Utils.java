@@ -1,12 +1,16 @@
 package lang.aurum.model.factory;
 
+import lang.aurum.model.Generic;
 import lang.aurum.model.Type;
 import lang.aurum.model.TypeParameter;
 import lang.aurum.model.impl.TypeParameterImpl;
 
 import java.lang.reflect.GenericDeclaration;
 import java.lang.reflect.TypeVariable;
-import java.util.*;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Optional;
+import java.util.SequencedSet;
 
 public final class Utils {
     public static Class<?> getComponent(Class<?> clazz) {
@@ -17,7 +21,7 @@ public final class Utils {
 
     private static final HashMap<Integer, Type> typeCache = new HashMap<>();
 
-    public static void processTypeParameters(Type type, GenericDeclaration generic) {
+    public static void processTypeParameters(Generic type, GenericDeclaration generic) {
         TypeVariable<?>[] typeParameters = generic.getTypeParameters();
         for (int i = 0; i < typeParameters.length; i++) {
             TypeVariable<?> typeVariable = typeParameters[i];
@@ -48,7 +52,9 @@ public final class Utils {
 
     public static <T> void addAll(SequencedSet<T> set, T[] elements) {
         for (var el : elements) {
-            set.addLast(el);
+            if (el != null) {  // Filter out null elements
+                set.addLast(el);
+            }
         }
     }
 }

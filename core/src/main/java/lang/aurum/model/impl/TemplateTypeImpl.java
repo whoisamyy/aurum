@@ -13,4 +13,9 @@ public record TemplateTypeImpl(
     public Type asArray(int dimensions) {
         return new TemplateTypeImpl(className, arrayDimensions + dimensions);
     }
+
+    @Override
+    public String toUsageString() {
+        return className + "[]".repeat(arrayDimensions);
+    }
 }

@@ -1,5 +1,6 @@
 package lang.aurum.model;
 
+import lang.aurum.model.impl.TemplateTypeImpl;
 import lang.aurum.model.impl.Utils;
 import org.jetbrains.annotations.NotNull;
 
@@ -38,13 +39,13 @@ public interface TemplateType extends Type {
 
     @NotNull
     @Override
-    default Type withTypeArguments(TypeArgument[] typeArguments) {
+    default Type withTypeArguments(TypeArgument @NotNull [] typeArguments) {
         return this;
     }
 
     @NotNull
     @Override
-    default Type withTypeArguments(Type[] typeArguments) {
+    default Type withTypeArguments(Type @NotNull [] typeArguments) {
         return this;
     }
 
@@ -190,5 +191,9 @@ public interface TemplateType extends Type {
     @Override
     default Member[] members() {
         return Utils.EMPTY_MEMBERS;
+    }
+
+    static TemplateType of(String name) {
+        return new TemplateTypeImpl(name, 0);
     }
 }

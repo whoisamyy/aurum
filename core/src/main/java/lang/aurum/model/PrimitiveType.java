@@ -41,13 +41,13 @@ public interface PrimitiveType extends Type {
 
     @NotNull
     @Override
-    default Type withTypeArguments(TypeArgument[] typeArguments) {
+    default Type withTypeArguments(TypeArgument @NotNull [] typeArguments) {
         return this; // todo: add logging
     }
 
     @NotNull
     @Override
-    default Type withTypeArguments(Type[] typeArguments) {
+    default Type withTypeArguments(Type @NotNull [] typeArguments) {
         return this;
     }
 

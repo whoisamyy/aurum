@@ -1,6 +1,8 @@
 package lang.aurum.model.impl;
 
-import lang.aurum.model.*;
+import lang.aurum.model.IntersectionType;
+import lang.aurum.model.Type;
+import lang.aurum.model.TypeArgument;
 import org.jetbrains.annotations.NotNull;
 
 public record IntersectionTypeImpl(
@@ -8,14 +10,14 @@ public record IntersectionTypeImpl(
 ) implements IntersectionType {
     @NotNull
     @Override
-    public IntersectionType withTypeArguments(TypeArgument[] typeArguments) {
+    public IntersectionType withTypeArguments(TypeArgument @NotNull [] typeArguments) {
         return Utils.applyTypeArguments(this, typeArguments);
     }
 
 
     @NotNull
     @Override
-    public IntersectionType withTypeArguments(Type[] typeArguments) {
+    public IntersectionType withTypeArguments(Type @NotNull [] typeArguments) {
         return Utils.applyTypeArguments(this, typeArguments);
     }
 }

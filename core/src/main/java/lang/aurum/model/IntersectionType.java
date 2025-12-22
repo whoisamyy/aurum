@@ -15,10 +15,10 @@ public interface IntersectionType extends Type {
     Type[] types();
 
     @Override
-    @NotNull IntersectionType withTypeArguments(TypeArgument[] typeArguments);
+    @NotNull IntersectionType withTypeArguments(TypeArgument @NotNull [] typeArguments);
 
     @Override
-    @NotNull IntersectionType withTypeArguments(Type[] typeArguments);
+    @NotNull IntersectionType withTypeArguments(Type @NotNull [] typeArguments);
 
     @NotNull
     @Override

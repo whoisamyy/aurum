@@ -56,12 +56,12 @@ public record ArrayTypeImpl<T extends Type>(
 
     @Override
     @NotNull
-    public Type withTypeArguments(TypeArgument[] typeArguments) {
+    public Type withTypeArguments(TypeArgument @NotNull [] typeArguments) {
         return componentType.withTypeArguments(typeArguments);
     }
 
     @Override
-    public @NotNull Type withTypeArguments(Type[] typeArguments) {
+    public @NotNull Type withTypeArguments(Type @NotNull [] typeArguments) {
         return componentType.withTypeArguments(typeArguments);
     }
 

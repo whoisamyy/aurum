@@ -1,6 +1,7 @@
 package lang.aurum.model.impl;
 
 import lang.aurum.model.*;
+import org.jetbrains.annotations.NotNull;
 
 import java.lang.reflect.AccessFlag;
 import java.util.Arrays;
@@ -9,13 +10,14 @@ import java.util.Map;
 import java.util.Optional;
 
 public class Utils {
-    public static final AccessFlag[] DEFAULT_ACCESS_FLAGS = new AccessFlag[]{AccessFlag.PUBLIC, AccessFlag.FINAL};
-    public static final Member[] EMPTY_MEMBERS = new Member[0];
-    public static final Field[] EMPTY_FIELDS = new Field[0];
-    public static final Method[] EMPTY_METHODS = new Method[0];
-    public static final Attribute[] EMPTY_ATTRIBUTES = new Attribute[0];
-    public static final TypeParameter[] EMPTY_TYPE_PARAMETERS = new TypeParameter[0];
-    public static final Type[] EMPTY_TYPES = new Type[0];
+    public static final AccessFlag @NotNull [] DEFAULT_ACCESS_FLAGS = new AccessFlag[]{AccessFlag.PUBLIC, AccessFlag.FINAL};
+    public static final Member @NotNull [] EMPTY_MEMBERS = new Member[0];
+    public static final Field @NotNull [] EMPTY_FIELDS = new Field[0];
+    public static final Method @NotNull [] EMPTY_METHODS = new Method[0];
+    public static final Attribute @NotNull [] EMPTY_ATTRIBUTES = new Attribute[0];
+    public static final TypeParameter @NotNull [] EMPTY_TYPE_PARAMETERS = new TypeParameter[0];
+    public static final Type @NotNull [] EMPTY_TYPES = new Type[0];
+    public static final TypeArgument @NotNull [] EMPTY_TYPE_ARGUMENTS = new TypeArgument[0];
 
     public static Type replaceTemplates(Type type, Map<String, Type> typeMap) {
         if (type == null) return null;
@@ -88,7 +90,7 @@ public class Utils {
                     }
                 }
             }
-            case Type _ -> {
+            case Type typeParam -> {
                 if (type.typeArguments().isEmpty())
                     break;
 
@@ -138,10 +140,17 @@ public class Utils {
         if (typeArguments == null || type.typeParameters().isEmpty())
             return new TypeArgument[0];
         TypeParameter[] tps = type.typeParameters().get();
-        int n = Math.min(tps.length, typeArguments.length);
+        // Filter out null type parameters
+        int nonNullCount = 0;
+        for (TypeParameter tp : tps) if (tp != null) nonNullCount++;
+        int n = Math.min(nonNullCount, typeArguments.length);
         TypeArgument[] args = new TypeArgument[n];
-        for (int i = 0; i < n; i++) {
-            args[i] = new TypeArgumentImpl(tps[i].name(), typeArguments[i]);
+        int argIdx = 0;
+        for (int i = 0; i < tps.length && argIdx < n; i++) {
+            if (tps[i] != null) {
+                args[argIdx] = new TypeArgumentImpl(tps[i].name(), typeArguments[argIdx]);
+                argIdx++;
+            }
         }
         return args;
     }
@@ -221,11 +230,17 @@ public class Utils {
         );
 
         for (int i = 0; i < oldMethods.length; i++) {
+            if (oldMethods[i] == null) {
+                continue; // Skip null methods
+            }
             newMethods[i] = applyTypeArguments(oldMethods[i], newType, typeArguments);
         }
 
         for (int i = 0; i < oldFields.length; i++) {
             Field f = oldFields[i];
+            if (f == null) {
+                continue; // Skip null fields
+            }
             Type newFieldType = replaceTemplates(f.type(), typeMap);
             newFields[i] = new FieldImpl(newType, f.name(), newFieldType, f.attributes(), f.accessFlags());
         }

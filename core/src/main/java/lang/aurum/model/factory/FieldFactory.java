@@ -11,7 +11,7 @@ public final class FieldFactory {
         return new FieldImpl(
                 TypeFactory.ofClass(field.getDeclaringClass()),
                 field.getName(),
-                TypeFactory.ofClass(field.getType()),
+                TypeFactory.ofType(field.getGenericType()),
                 Utils.EMPTY_ATTRIBUTES,
                 field.accessFlags().toArray(AccessFlag[]::new)
         );

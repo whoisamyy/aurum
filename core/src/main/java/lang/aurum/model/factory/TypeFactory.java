@@ -7,6 +7,7 @@ import lang.aurum.model.impl.TypeImpl;
 
 import java.lang.reflect.AccessFlag;
 import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.TypeVariable;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -30,6 +31,7 @@ public final class TypeFactory {
             PrimitiveTypeImpl primitiveType = Arrays.stream(PrimitiveTypeImpl.values())
                                                     .filter(t -> t.className().equals(finalClazz.getSimpleName()))
                                                     .findFirst().orElseThrow();
+
             cache.put(clazz, primitiveType);
             if (arrayDimensions == 0)
                 return primitiveType;
@@ -105,8 +107,35 @@ public final class TypeFactory {
             Utils.addAll(methods, inter.methods());
         }
 
-        System.arraycopy(fields.toArray(Field[]::new), 0, type.fields(), 0, type.fields().length);
-        System.arraycopy(methods.toArray(Method[]::new), 0, type.methods(), 0, type.methods().length);
+        Field[] fieldsArray = fields.toArray(Field[]::new);
+        Method[] methodsArray = methods.toArray(Method[]::new);
+        
+        // Filter out any nulls that might have slipped through and create properly sized arrays
+        Field[] nonNullFieldsArray = Arrays.stream(fieldsArray).filter(f -> f != null).toArray(Field[]::new);
+        Method[] nonNullMethodsArray = Arrays.stream(methodsArray).filter(m -> m != null).toArray(Method[]::new);
+        
+        // Replace arrays with correctly sized ones using reflection (fields and methods are final)
+        try {
+            java.lang.reflect.Field fieldsField = TypeImpl.class.getDeclaredField("fields");
+            fieldsField.setAccessible(true);
+            // Remove final modifier using reflection
+            java.lang.reflect.Field modifiersField = java.lang.reflect.Field.class.getDeclaredField("modifiers");
+            modifiersField.setAccessible(true);
+            int fieldsModifiers = fieldsField.getModifiers();
+            modifiersField.setInt(fieldsField, fieldsModifiers & ~java.lang.reflect.Modifier.FINAL);
+            fieldsField.set(type, nonNullFieldsArray);
+            
+            java.lang.reflect.Field methodsField = TypeImpl.class.getDeclaredField("methods");
+            methodsField.setAccessible(true);
+            int methodsModifiers = methodsField.getModifiers();
+            modifiersField.setInt(methodsField, methodsModifiers & ~java.lang.reflect.Modifier.FINAL);
+            methodsField.set(type, nonNullMethodsArray);
+        } catch (Exception e) {
+            // Fallback: copy what we can, but this will leave nulls if arrays are mismatched
+            // This should not happen if reflection works, but provides a safety net
+            System.arraycopy(nonNullFieldsArray, 0, type.fields(), 0, Math.min(nonNullFieldsArray.length, type.fields().length));
+            System.arraycopy(nonNullMethodsArray, 0, type.methods(), 0, Math.min(nonNullMethodsArray.length, type.methods().length));
+        }
     }
 
 
@@ -118,35 +147,48 @@ public final class TypeFactory {
         if (cache1.containsKey(type))
             return cache1.get(type);
 
-        if (type instanceof ParameterizedType parameterized) {
-            try {
-                Type auType = ofClass(Class.forName(parameterized.getRawType().getTypeName()));
-                Type retType = auType.withTypeArguments(
-                        Arrays.stream(parameterized.getActualTypeArguments())
-                              .map(TypeFactory::ofType)
-                              .toArray(Type[]::new)
-                );
-                cache1.put(type, retType);
-                return retType;
-            } catch (ClassNotFoundException e) {
-                throw new RuntimeException(e);
+        switch (type) {
+            case Class<?> clazz -> {
+                Type ret = ofClass(clazz);
+                cache1.put(type, ret);
+                return ret;
             }
-        } else {
-            try {
-                Type retType = ofClass(Class.forName(type.getTypeName()));
-                cache1.put(type, retType);
-                return retType;
-            } catch (ClassNotFoundException e) {
-                Type retType = ofClass(Object.class);
-                cache1.put(type, retType);
-                return retType;
+            case ParameterizedType parameterized -> {
+                try {
+                    Type auType = ofClass(Class.forName(parameterized.getRawType().getTypeName()));
+                    Type retType = auType.withTypeArguments(
+                            Arrays.stream(parameterized.getActualTypeArguments())
+                                  .map(TypeFactory::ofType)
+                                  .toArray(Type[]::new)
+                    );
+                    cache1.put(type, retType);
+                    return retType;
+                } catch (ClassNotFoundException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+            case TypeVariable<?> typeVariable -> {
+                Type ret = TemplateType.of(typeVariable.getName());
+                cache1.put(type, ret);
+                return ret;
+            }
+            default -> {
+                try {
+                    Type retType = ofClass(Class.forName(type.getTypeName()));
+                    cache1.put(type, retType);
+                    return retType;
+                } catch (ClassNotFoundException e) {
+                    Type retType = ofClass(Object.class);
+                    cache1.put(type, retType);
+                    return retType;
+                }
             }
         }
     }
 
     /// Since this method is used only for handling generic type arguments based on Java classes
-    /// it is totally fine to assume that resulting type will be intersection of given types
-    /// @param types Types to form an intersection type
+    /// resulting type will be an intersection of given types
+    /// @param types Types to form an intersection type of
     /// @return Returns [IntersectionType] with [Type]s provided by types parameter
     static Type ofTypes(java.lang.reflect.Type[] types) {
         int key = Arrays.hashCode(types);

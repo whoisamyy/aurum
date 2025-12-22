@@ -26,7 +26,7 @@ public interface Accessible {
         return (AccessFlag.FINAL.mask() & intFlags()) > 0;
     }
     default boolean isInterface() {
-        return (AccessFlag.FINAL.mask() & intFlags()) > 0;
+        return (AccessFlag.INTERFACE.mask() & intFlags()) > 0;
     }
     default boolean isMandated() {
         return (AccessFlag.MANDATED.mask() & intFlags()) > 0;

@@ -4,7 +4,9 @@ import lang.aurum.model.*;
 import org.jetbrains.annotations.NotNull;
 
 import java.lang.reflect.AccessFlag;
-import java.util.*;
+import java.util.Arrays;
+import java.util.Objects;
+import java.util.Optional;
 
 @SuppressWarnings("OptionalUsedAsFieldOrParameterType")
 public final class TypeImpl implements Type {
@@ -46,18 +48,9 @@ public final class TypeImpl implements Type {
     @NotNull
     @Override
     public Type asArray(int dimensions) {
-        return new TypeImpl(
-                className,
-                pkg,
-                superClass,
-                interfaces,
-                fields,
-                methods,
-                accessFlags,
-                attributes,
-                typeParameters,
-                typeArguments
-        );
+        if (dimensions > 0)
+            return new ArrayTypeImpl<>(this, dimensions);
+        return this;
     }
 
     /*
@@ -67,13 +60,13 @@ public final class TypeImpl implements Type {
      */
     @NotNull
     @Override
-    public Type withTypeArguments(TypeArgument[] typeArguments) {
+    public Type withTypeArguments(TypeArgument @NotNull [] typeArguments) {
         return Utils.applyTypeArguments(this, typeArguments);
     }
 
     @NotNull
     @Override
-    public Type withTypeArguments(Type[] typeArguments) {
+    public Type withTypeArguments(Type @NotNull [] typeArguments) {
         return Utils.applyTypeArguments(this, typeArguments);
     }
 

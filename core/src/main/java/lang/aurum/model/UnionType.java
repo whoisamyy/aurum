@@ -136,10 +136,10 @@ public interface UnionType extends Type {
     }
 
     @Override
-    @NotNull UnionType withTypeArguments(TypeArgument[] typeArguments);
+    @NotNull UnionType withTypeArguments(TypeArgument @NotNull [] typeArguments);
 
     @Override
-    @NotNull UnionType withTypeArguments(Type[] typeArguments);
+    @NotNull UnionType withTypeArguments(Type @NotNull [] typeArguments);
 
     @NotNull
     @Override

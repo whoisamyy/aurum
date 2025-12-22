@@ -9,9 +9,9 @@ public interface Method extends Member, Generic {
 
     @Override
     @NotNull
-    Method withTypeArguments(TypeArgument[] typeArguments);
+    Method withTypeArguments(TypeArgument @NotNull [] typeArguments);
 
     @Override
     @NotNull
-    Method withTypeArguments(Type[] typeArguments);
+    Method withTypeArguments(Type @NotNull [] typeArguments);
 }

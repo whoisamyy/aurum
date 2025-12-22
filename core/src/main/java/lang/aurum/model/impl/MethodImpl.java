@@ -18,13 +18,13 @@ public record MethodImpl(
         Attribute[] attributes
 ) implements Method {
     @NotNull
-    public Method withTypeArguments(TypeArgument[] typeArguments) {
+    public Method withTypeArguments(TypeArgument @NotNull [] typeArguments) {
         return Utils.applyTypeArguments(this, owner, typeArguments);
     }
 
     @NotNull
     @Override
-    public Method withTypeArguments(Type[] typeArguments) {
+    public Method withTypeArguments(Type @NotNull [] typeArguments) {
         return Utils.applyTypeArguments(this, owner, typeArguments);
     }
 

@@ -8,4 +8,8 @@ public record ParameterImpl(
         String name,
         Type type,
         Attribute[] attributes
-) implements Parameter {}
+) implements Parameter {
+    public ParameterImpl(String name, Type type) {
+        this(name, type, Utils.EMPTY_ATTRIBUTES);
+    }
+}

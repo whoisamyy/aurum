@@ -1,6 +1,8 @@
 package lang.aurum.model.impl;
 
-import lang.aurum.model.*;
+import lang.aurum.model.Type;
+import lang.aurum.model.TypeArgument;
+import lang.aurum.model.UnionType;
 import org.jetbrains.annotations.NotNull;
 
 public record UnionTypeImpl(
@@ -14,13 +16,13 @@ public record UnionTypeImpl(
 
     @NotNull
     @Override
-    public UnionType withTypeArguments(TypeArgument[] typeArguments) {
+    public UnionType withTypeArguments(TypeArgument @NotNull [] typeArguments) {
         return Utils.applyTypeArguments(this, typeArguments);
     }
 
     @NotNull
     @Override
-    public UnionType withTypeArguments(Type[] typeArguments) {
+    public UnionType withTypeArguments(Type @NotNull [] typeArguments) {
         return Utils.applyTypeArguments(this, typeArguments);
     }
 }

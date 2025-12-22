@@ -35,6 +35,34 @@ public interface Type extends Accessible, Attributable, Generic {
         return false;
     }
 
+    default int getInheritanceDistance(Type other) {
+        if (other == null)
+            throw new NullPointerException("Cannot calculate inheritance distance from " + this.toUsageString() + " to null");
+
+        if (this.equals(other))
+            return 0;
+
+        if (!this.isSubclassOf(other) && !this.isSuperclassOf(other))
+            return -1;
+
+        if (Arrays.asList(this.interfaces().orElse(Utils.EMPTY_TYPES)).contains(other)
+                || Arrays.asList(other.interfaces().orElse(Utils.EMPTY_TYPES)).contains(this)
+                || (this.superClass() != null && this.superClass().equals(other))
+                || (other.superClass() != null && other.superClass().equals(this)))
+            return 1;
+
+        if (other.isInterface()) {
+            return Arrays.stream(this.interfaces().orElse(Utils.EMPTY_TYPES))
+                         .reduce(
+                                 0,
+                                 (depth, type) -> depth + type.getInheritanceDistance(other),
+                                 Integer::sum
+                         );
+        }
+
+        return Optional.ofNullable(superClass()).map(t -> t.getInheritanceDistance(other) + 1).orElse(0);
+    }
+
     default boolean isSubclassOf(Type other) {
         if (this.fullName().equals(other.fullName()))
             return true;
@@ -70,6 +98,10 @@ public interface Type extends Accessible, Attributable, Generic {
         }
 
         return false;
+    }
+
+    default boolean isSuperclassOf(Type other) {
+        return other.isSubclassOf(this);
     }
 
 
@@ -110,9 +142,9 @@ public interface Type extends Accessible, Attributable, Generic {
     /// @param typeArguments type arguments
     /// @return Type with type arguments applied to it.
     @Override
-    @NotNull Type withTypeArguments(TypeArgument[] typeArguments);
+    @NotNull Type withTypeArguments(TypeArgument @NotNull [] typeArguments);
     @Override
-    @NotNull Type withTypeArguments(Type[] typeArguments);
+    @NotNull Type withTypeArguments(Type @NotNull [] typeArguments);
 
     default @NotNull Type asArrayWithTypeArguments(int dimensions, TypeArgument[] typeArguments) {
         return asArray(dimensions).withTypeArguments(typeArguments);
@@ -128,7 +160,7 @@ public interface Type extends Accessible, Attributable, Generic {
     /// @param returnType Return type of the method
     /// @param parameterTypes types of parameters of the method
     /// @return Returns [Method] with provided signature or none if no method found
-    default @NotNull Optional<Method> findMethodExact(String name, Type returnType, Type... parameterTypes) {
+    default @NotNull Optional<Method> findMethodExact(String name, Type returnType, Type[] parameterTypes) {
         return Arrays.stream(methods())
                 .filter(m -> name.equals(m.name()))
                 .filter(m -> returnType.equals(m.returnType()))
@@ -151,7 +183,7 @@ public interface Type extends Accessible, Attributable, Generic {
     /// @param name Name of the method
     /// @param parameterTypes types of parameters of the method. If none are provided then parameter types will be empty.
     /// @return Returns [Method] with provided signature or none if no method found
-    default @NotNull Optional<Method> findMethodExact(String name, Type... parameterTypes) {
+    default @NotNull Optional<Method> findMethodExact(String name, Type[] parameterTypes) {
         return Arrays.stream(methods())
                      .filter(m -> name.equals(m.name()))
                      .filter(m -> {
@@ -189,12 +221,12 @@ public interface Type extends Accessible, Attributable, Generic {
 
     /// Searches for method with signature that matches provided signature in [methods][#methods()] of this class. <br>
     /// Note that returned method can contain superclasses of provided parameter types as its parameter types. <br>
-    /// If exact signature is required then it is recommended to use [findMethodExact][#findMethodExact(String, Type, Type...)] method
+    /// If exact signature is required then it is recommended to use [findMethodExact][#findMethodExact(String, Type, Type\[\])] method
     /// @param name Name of the method
     /// @param returnType Return type of the method
     /// @param parameterTypes types of parameters of the method
     /// @return Returns [Method] or none if no method found
-    default @NotNull Optional<Method> findMethod(String name, Type returnType, Type... parameterTypes) {
+    default @NotNull Optional<Method> findMethod(String name, Type returnType, Type[] parameterTypes) {
         return Arrays.stream(methods())
                 .filter(m -> name.equals(m.name()))
                 .filter(m -> returnType.isSubclassOf(m.returnType()))
@@ -215,7 +247,7 @@ public interface Type extends Accessible, Attributable, Generic {
 
     /// Searches for method with signature that matches provided signature in [methods][#methods()] of this class. <br>
     /// Note that returned method can contain superclasses of provided parameter types as its parameter types. <br>
-    /// If exact signature is required then it is recommended to use [findMethodExact][#findMethodExact(String, Type, Type...)] method
+    /// If exact signature is required then it is recommended to use [findMethodExact][#findMethodExact(String, Type, Type\[\]))] method
     /// @param name Name of the method
     /// @param parameterTypes types of parameters of the method
     /// @return Returns [Method] or none if no method found
@@ -298,13 +330,15 @@ public interface Type extends Accessible, Attributable, Generic {
                 String retString = type.fullName();
                 if (type.typeArguments().isPresent()) {
                     var args = type.typeArguments().get();
-                    retString += "<" + String.join(
-                            ", ",
-                            Arrays.stream(args)
-                                  .map(TypeArgument::bound)
-                                  .map(Type::toUsageString)
-                                  .toArray(String[]::new)
-                    ) + ">";
+                    if (args.length != 0) {
+                        retString += "<" + String.join(
+                                ", ",
+                                Arrays.stream(args)
+                                      .map(TypeArgument::bound)
+                                      .map(Type::toUsageString)
+                                      .toArray(String[]::new)
+                        ) + ">";
+                    }
                 }
                 if (type instanceof ArrayType<?> arrayType)
                     retString += "[]".repeat(arrayType.arrayDimensions());
@@ -324,5 +358,21 @@ public interface Type extends Accessible, Attributable, Generic {
 
     static @NotNull Type ofType(java.lang.reflect.Type type) {
         return TypeFactory.ofType(type);
+    }
+
+    class Comparator implements java.util.Comparator<Type> {
+        public static final Comparator INSTANCE = new Comparator();
+
+        @Override
+        public int compare(Type t1, Type t2) {
+            if (t1.isSubclassOf(t2)) {
+                return -t1.getInheritanceDistance(t2);
+            }
+            if (t1.isSuperclassOf(t2)) {
+                return t1.getInheritanceDistance(t2);
+            }
+
+            return 0;
+        }
     }
 }
