@@ -1,18 +1,17 @@
 package lang.aurum.attribute
 
 import lang.aurum.ir.Associativity
+import lang.aurum.ir.Opcode
+import lang.aurum.ir.Operator
 import lang.aurum.model.Attribute
 
 data class OperatorAttribute (
-    val symbol: String,
-    val precedence: Int,
-    val associativity: Associativity = Associativity.LEFT_TO_RIGHT,
-    val isBinary: Boolean = true
+    val operator: Operator
 ) : Attribute {
     val values: MutableMap<String, Any?> = mutableMapOf(
-        "symbol" to symbol,
-        "precedence" to precedence,
-        "associativity" to associativity
+        "symbol" to operator.symbol,
+        "precedence" to operator.precedence,
+        "associativity" to operator.associativity,
     )
 
     override fun name(): String {
@@ -22,4 +21,10 @@ data class OperatorAttribute (
     override fun values(): MutableMap<String, Any?> {
         return values
     }
+
+    val symbol: String = operator.symbol
+    val precedence: Int = operator.precedence
+    val associativity: Associativity = operator.associativity
+    val isBinary: Boolean = operator.isBinary
+    val defaultOpcode: Opcode? = operator.defaultOpcode
 }
