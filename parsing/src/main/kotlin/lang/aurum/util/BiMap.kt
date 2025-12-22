@@ -8,16 +8,34 @@ interface BiMap<K : Any, V : Any> : Map<K, V> {
     val inverse: BiMap<V, K>
 }
 
+private class BiMapImpl<K : Any, V : Any>(
+    vararg pairs: Pair<K, V>
+) : BiMap<K, V> {
+    override val size: Int = pairs.size
+    override val keys: Set<K> = pairs.map(Pair<K, V>::first).toSet()
+    override val values: Set<V> = pairs.map(Pair<K, V>::second).toSet()
+    override val inverse: BiMap<V, K>
+        get() = BiMapImpl(pairs = values.zip(keys).toTypedArray())
+    override val entries: Set<Map.Entry<K, V>> = pairs.toMap().entries
+
+    override fun isEmpty(): Boolean = keys.isEmpty()
+
+    override fun containsKey(key: K): Boolean = key in keys
+
+    override fun containsValue(value: V): Boolean = value in values
+
+    override fun get(key: K): V? = entries.find { (k, _) -> k == key }?.value
+}
+
 interface MutableBiMap<K : Any, V : Any> : BiMap<K, V>, MutableMap<K, V> {
     override val values: MutableSet<V>
     override val inverse: MutableBiMap<V, K>
 
     fun forcePut(key: K, value: V): V?
 }
-
 abstract class AbstractBiMap<K : Any, V : Any> protected constructor(
-    private val direct: MutableMap<K, V>,
-    private val reverse: MutableMap<V, K>
+    protected val direct: MutableMap<K, V>,
+    protected val reverse: MutableMap<V, K>
 ) : MutableBiMap<K, V> {
     override val size: Int
         get() = direct.size
@@ -180,6 +198,32 @@ abstract class AbstractBiMap<K : Any, V : Any> protected constructor(
         }
     }
 }
+
+@Suppress("UNCHECKED_CAST")
+fun <K : Any, V : Any> mutableBiMapOf(
+    backingMapConstructor: (() -> MutableMap<K, V>)? = null,
+    vararg elements: Pair<K, V>
+): MutableBiMap<K, V> {
+    if (backingMapConstructor == null)
+        return HashBiMap<K, V>().let {
+            elements.forEach { (k, v) -> it[k] = v }
+            it
+        }
+
+    val biMap = object : AbstractBiMap<K, V>(
+        backingMapConstructor(),
+        (backingMapConstructor as (() -> MutableMap<V, K>))()
+    ) {}
+
+    elements.forEach { (k, v) -> biMap[k] = v }
+    return biMap
+}
+
+fun <K : Any, V : Any> biMapOf(
+    vararg pairs: Pair<K, V>
+): BiMap<K, V> = BiMapImpl(*pairs)
+
+
 
 class HashBiMap<K : Any, V : Any>(capacity: Int = 16) : AbstractBiMap<K, V>(HashMap(capacity), HashMap(capacity)) {
     companion object {
