@@ -38,6 +38,7 @@ enum class Opcode {
     NewArray,
     GetField,
     PutField,
+    GetMember,
     GetMethod,
     GetMethodStatic,
     GetStatic,
