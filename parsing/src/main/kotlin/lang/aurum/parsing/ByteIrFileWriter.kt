@@ -159,6 +159,7 @@ class ByteIrFileWriter (
         }
 
         attributes().forEachIndexed { i, it ->
+            if (!it.isVisible) return@forEachIndexed
             it.write(out)
             if (i != attributes().size-1) {
                 out.writeByte(','.code)

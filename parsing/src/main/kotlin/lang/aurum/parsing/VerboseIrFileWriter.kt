@@ -3,6 +3,8 @@ package lang.aurum.parsing
 import lang.aurum.ir.*
 import lang.aurum.model.*
 import lang.aurum.parsing.model.ConstantPool
+import lang.aurum.parsing.model.MutableField
+import lang.aurum.parsing.model.MutableMethod
 import lang.aurum.parsing.model.MutableType
 import java.io.DataOutputStream
 import java.nio.file.Path
@@ -27,7 +29,7 @@ class VerboseIrFileWriter (
     }
 
     private fun ConstantPool.write(out: DataOutputStream) {
-        this.constantPool.inverse.forEach { (k, v) ->
+        this.constantPool.forEach { (v, k) ->
             out.writeBytes("#${v.ref}")
 
             when (k) {
@@ -138,13 +140,13 @@ class VerboseIrFileWriter (
                 )
             }
         } else {
-            out.writeBytes(typeArguments().get().joinToString {
-                it.bound().toUsageString()
-            })
+//            out.writeBytes(typeArguments().get().joinToString {
+//                it.bound().toUsageString()
+//            })
             typeParameters().ifPresent {
                 out.writeBytes(it.clone().filter { param ->
                     typeArguments().get().any { arg -> arg.name().equals(param.name()) }
-                }.joinToString(",", prefix = "<", postfix = "> ") { param ->
+                }.joinToString(", ", prefix = "<", postfix = "> ") { param ->
                     "${param.name()}:${param.bound().toUsageString()}"
                 })
             }
@@ -155,15 +157,21 @@ class VerboseIrFileWriter (
             if (it.size == 0)
                 return@ifPresent
             out.writeBytes(", ")
-            out.writeBytes(it.joinToString(", "))
+            out.writeBytes(it.joinToString(", ") { inter -> inter.toUsageString()})
         }
 
         out.writeBytes(" {")
         fields().forEach {
+            if (it !is MutableField)
+                return@forEach
+
             out.writeBytes("\n")
             it.write(out)
         }
         methods().forEach {
+            if (it !is MutableMethod)
+                return@forEach
+
             out.writeBytes("\n")
             it.write(out)
         }
@@ -172,20 +180,20 @@ class VerboseIrFileWriter (
 
     private fun Member.write(out: DataOutputStream) {
         when (this) {
-            is Method -> this.write(out)
-            is Field -> this.write(out)
+            is MutableMethod -> this.write(out)
+            is MutableField -> this.write(out)
         }
     }
 
-    private fun Method.write(out: DataOutputStream) {
+    private fun MutableMethod.write(out: DataOutputStream) {
         writeAttributes(this.attributes(), out)
-        if (accessFlags().size != 0)
+        if (accessFlags().isNotEmpty())
             out.writeBytes(accessFlags().joinToString(" ", postfix = " ") { it.name })
 
         out.writeBytes("fn ")
 
         typeParameters().ifPresent { params ->
-            if (params.size == 0)
+            if (params.isEmpty())
                 return@ifPresent
             out.writeBytes(params.joinToString(",", prefix = " <", postfix = "> ") {
                 "${it.name()}:${it.bound().toUsageString()}"
@@ -221,8 +229,9 @@ class VerboseIrFileWriter (
         out.writeBytes("}\n")
     }
 
-    private fun writeAttributes(attributes: Array<Attribute>, out: DataOutputStream) {
+    private fun writeAttributes(attributes: Array<out Attribute>, out: DataOutputStream) {
         attributes.forEachIndexed { i, it ->
+            if (!it.isVisible) return@forEachIndexed
             if (it is CodeAttribute) return@forEachIndexed
             it.write(out)
             if (i != attributes.size - 1) {
@@ -233,7 +242,7 @@ class VerboseIrFileWriter (
             out.writeBytes("\n")
     }
 
-    private fun Field.write(out: DataOutputStream) {
+    private fun MutableField.write(out: DataOutputStream) {
         writeAttributes(this.attributes(), out)
 
         if (accessFlags().isNotEmpty())
