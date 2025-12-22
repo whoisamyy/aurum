@@ -9,22 +9,19 @@ import lang.aurum.parsing.stages.ParsingContext
 import lang.aurum.parsing.stages.ParsingStage
 
 class OptimizationStage(parsingContext: ParsingContext) : ParsingStage(parsingContext) {
-    override fun execute() {
-        val action: (FileContext, Member) -> Unit = { fileCtx, member ->
-            val codeAttr = (member as? MutableMethod)?.attributes?.find { it is CodeAttribute } as CodeAttribute?
-            if (codeAttr != null) {
-                ConstantFolding.run(fileCtx, codeAttr.code)
-                CopyPropagation.run(fileCtx, codeAttr.code)
-                CallOnClosure.run(fileCtx, codeAttr.code)
-                DeadCodeElimination.run(fileCtx, codeAttr.code)
-            }
+    private val action: (FileContext, Member) -> Unit = { fileCtx, member ->
+        val codeAttr = (member as? MutableMethod)?.attributes?.find { it is CodeAttribute } as CodeAttribute?
+        if (codeAttr != null) {
+            ConstantFolding.run(fileCtx, codeAttr.code)
+            CopyPropagation.run(fileCtx, codeAttr.code)
+            DeadCodeElimination.run(fileCtx, codeAttr.code)
         }
-        parsingContext.files.forEach { file ->
-            file.fileClass.methods.forEach { action.invoke(file, it) }
-            file.members.map { it.first }.forEach { action.invoke(file, it) }
-            file.classes.forEach { (k, _) ->
-                k.methods().forEach { action.invoke(file, it) }
-            }
+    }
+
+    override fun execute(file: FileContext) {
+        file.fileClass.methods.forEach { action.invoke(file, it) }
+        file.classes.forEach { (k, _) ->
+            k.methods().forEach { action.invoke(file, it) }
         }
     }
 }

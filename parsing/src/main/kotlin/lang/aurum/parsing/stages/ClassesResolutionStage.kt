@@ -4,13 +4,10 @@ import lang.aurum.parsing.antlr.AurumParser
 import lang.aurum.parsing.attribute.ExtensionAttributeImpl
 import lang.aurum.parsing.model.MutableTypePool
 import java.lang.reflect.AccessFlag
-import kotlin.io.path.nameWithoutExtension
 
 class ClassesResolutionStage(parsingContext: ParsingContext) : ParsingStage(parsingContext) {
-    override fun execute() {
-        parsingContext.files.forEach {
-            process(it)
-        }
+    override fun execute(fileContext: FileContext) {
+        process(fileContext)
     }
 
     private fun process(context: FileContext) {
@@ -60,12 +57,6 @@ class ClassesResolutionStage(parsingContext: ParsingContext) : ParsingStage(pars
                     }
                 }
             }
-
-        context.fileClass = MutableTypePool.get(
-            context.path.fileName.nameWithoutExtension,
-            context.pkg,
-            accessFlags = mutableListOf(AccessFlag.PUBLIC, AccessFlag.FINAL)
-        )
 //        if (context.ctx.declaration()
 //                .map { it.getChild(0) }
 //                .any {
