@@ -26,6 +26,7 @@ interface CodeElement : Sized
 sealed interface TargetRef
 
 sealed interface RValue : Sized, TargetRef
+sealed interface LValue : Sized
 object NullRef : RValue {
     override fun size(): Int = 1
 
@@ -38,9 +39,9 @@ object NullRef : RValue {
     }
 }
 
-sealed class Target (
+open class Target (
     val name: String
-) : Sized {
+) : LValue {
     constructor(ref: Reference) : this(ref.name)
     override fun size(): Int = name.length
     override fun write(out: DataOutputStream) {
@@ -65,17 +66,11 @@ sealed class Target (
     }
 
     object Empty : Target("_")
-
-    companion object {
-        fun Target(name: String): Target {
-            return ::Target.invoke(name)
-        }
-    }
 }
 
 data class Reference (
     val name: String
-) : RValue {
+) : RValue, LValue {
     constructor(target: Target) : this(target.name)
 
     override fun size(): Int = name.length
@@ -132,7 +127,7 @@ sealed interface MemberRef : RValue, TargetRef
 
 class FieldRef (
     ref: UShort
-) : ConstRef<Field>(ref), MemberRef {
+) : ConstRef<Field>(ref), MemberRef, LValue {
     override fun size(): Int = CONSTANT_POOL_ELEMENT_SIZE // bytes
     override fun write(out: DataOutputStream) {
         writeConstantPoolRef(ref, out)
@@ -189,7 +184,7 @@ data class MemberGroupRef (
 ) : MemberRef {
     init {
         if (refs.any { it is MemberGroupRef || it is MethodGroupRef || it is FieldGroupRef })
-            throw IllegalStateException("todo")
+            throw IllegalStateException("Nested member group references are not allowed in MemberGroupRef")
     }
 
     override fun size(): Int = refs.size * CONSTANT_POOL_ELEMENT_SIZE
