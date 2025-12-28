@@ -35,6 +35,18 @@ tasks.generateGrammarSource {
     source = fileTree("src/main/antlr")
 }
 
+tasks.withType<KotlinCompile> {
+    dependsOn(tasks.generateGrammarSource)
+}
+
+tasks.compileTestKotlin {
+    dependsOn(tasks.generateTestGrammarSource)
+}
+
+tasks.compileTestJava {
+    dependsOn(tasks.generateTestGrammarSource)
+}
+
 tasks.withType<JavaCompile> {
     dependsOn(tasks.generateGrammarSource)
 
@@ -47,10 +59,6 @@ tasks.withType<JavaCompile> {
             "aurum.parsing=${kotlinClasses.get().asFile.absolutePath}"
         )
     })
-}
-
-tasks.withType<KotlinCompile> {
-    dependsOn(tasks.generateGrammarSource)
 }
 
 java {
