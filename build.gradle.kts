@@ -17,13 +17,3 @@ dependencies {
 tasks.test {
     useJUnitPlatform()
 }
-
-tasks.register<JavaExec>("runParser") {
-    dependsOn(":parsing:classes")
-    group = "application"
-    description = "Run lang.aurum.parsing.Parser.main()"
-    mainModule.set("aurum.parsing/lang.aurum.parsing.Parser")
-    classpath = project(":parsing").sourceSets.main.get().runtimeClasspath
-    modularity.inferModulePath.set(true)
-//    mainClass.set("lang.aurum.parsing.Parser")
-}
