@@ -87,15 +87,11 @@ defaultConstructorParamList
     ;
 
 defaultConstructorParam
-    : decorator* modifier* 'let'? Identifier ':' typeExpr
+    : decorator* modifier* varDefKW? Identifier ':' typeExpr
     ;
 
 decoratorDecl
     : decorator* modifier* '@class' Identifier (EmptyBraces | ('(' paramList? ')'))? '{' ENDLINE* (funcDecl ENDLINE+)* '}'
-    ;
-
-qualifiedNameList
-    : qualifiedName (',' qualifiedName)*
     ;
 
 memberDecl
@@ -107,9 +103,9 @@ memberDecl
     ;
 
 varDecl
-    : decorator* modifier* 'let' Identifier (':' typeExpr)? ('=' expression)? # singleDecl
-    | decorator* modifier* 'let' varId (',' varId)+ ('=' expression)? # unpackDecl
-    | decorator* modifier* 'let' varIdAssignment (',' varIdAssignment)+ # multiDecl
+    : decorator* modifier* varDefKW Identifier (':' typeExpr)? ('=' expression)? # singleDecl
+    | decorator* modifier* varDefKW varId (',' varId)+ ('=' expression)? # unpackDecl
+    | decorator* modifier* varDefKW varIdAssignment (',' varIdAssignment)+ # multiDecl
     ;
 
 varIdAssignment
@@ -337,6 +333,9 @@ qualifiedName
     : Identifier ('.' Identifier)*
     ;
 
+varDefKW
+    : KWlet | KWvar
+    ;
 
 EmptyBraces
     : '()'
@@ -382,6 +381,7 @@ KWpackage:    'package'  ;
 KWinterface:  'interface';
 KWtype:       'type'     ;
 KWlet:        'let'      ;
+KWvar:        'var'      ;
 KWmatch:      'match'    ;
 KWdefault:    'default'  ;
 KWoperator:   'operator' ;
