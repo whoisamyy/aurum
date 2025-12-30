@@ -19,9 +19,6 @@ dependencies {
     implementation(project(":runtime"))
     antlr("org.antlr:antlr4:4.13.2")
 
-    compileOnly("org.projectlombok:lombok:1.18.40")
-    annotationProcessor("org.projectlombok:lombok:1.18.40")
-
     implementation(kotlin("reflect"))
     implementation("org.jetbrains:annotations:26.0.2")
 
