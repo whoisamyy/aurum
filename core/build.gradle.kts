@@ -1,5 +1,6 @@
 plugins {
     id("java")
+    kotlin("jvm") version "2.2.0"
 }
 
 group = "io.github.whoisamyy"
@@ -12,16 +13,27 @@ repositories {
 dependencies {
     implementation("org.jetbrains:annotations:26.0.2")
 
+    implementation(kotlin("reflect"))
+
     testImplementation(platform("org.junit:junit-bom:5.10.0"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
-
-    testCompileOnly("org.projectlombok:lombok:1.18.40")
-    testAnnotationProcessor("org.projectlombok:lombok:1.18.40")
 }
 
 java {
     modularity.inferModulePath.set(true)
+}
+
+tasks.withType<JavaCompile> {
+    options.compilerArgumentProviders.add(object : CommandLineArgumentProvider {
+        @CompileClasspath
+        val kotlinClasses = kotlin.sourceSets.main.flatMap { it.kotlin.classesDirectory }
+
+        override fun asArguments() = listOf(
+            "--patch-module",
+            "aurum.parsing=${kotlinClasses.get().asFile.absolutePath}"
+        )
+    })
 }
 
 tasks.test {
