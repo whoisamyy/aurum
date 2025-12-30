@@ -3,13 +3,15 @@ package lang.aurum.parsing.stages.coderesolution
 import lang.aurum.attribute.OperatorAttribute
 import lang.aurum.ir.*
 import lang.aurum.ir.Target
-import lang.aurum.ir.Target.Companion.Target
 import lang.aurum.model.*
 import lang.aurum.model.impl.ParameterImpl
 import lang.aurum.parsing.antlr.AurumParser
+import lang.aurum.parsing.aurumError
 import lang.aurum.parsing.model.MutableMethod
 import lang.aurum.parsing.model.MutableType
 import lang.aurum.parsing.model.getType
+import lang.aurum.parsing.throwAurumError
+import org.antlr.v4.runtime.ParserRuleContext
 import kotlin.jvm.optionals.getOrNull
 import kotlin.reflect.full.memberProperties
 
@@ -27,7 +29,7 @@ class ExpressionProcessor (
             is AurumParser.LoopStatementExprContext -> processLoopStatement(expr.loopStatement())
             is AurumParser.WhileStatementExprContext -> processWhileStatement(expr.whileStatement())
             is AurumParser.LambdaExprExprContext -> processLambdaExpr(expr.lambdaExpr())
-            else -> throw IllegalStateException("todo")
+            else -> throwAurumError("Unsupported expression type: ${expr.javaClass.simpleName}", expr, compiler.fileContext)
         }
     }
 
@@ -67,7 +69,7 @@ class ExpressionProcessor (
         ifElifElse(allScopes, elifBlocks, elseScope, elseBlock)
     }
 
-    private fun ifElifElse(
+    internal fun ifElifElse(
         allScopes: List<Scope>,
         elifBlocks: List<Pair<() -> RValue, () -> Unit>>,
         elseScope: Scope? = null,
@@ -102,7 +104,7 @@ class ExpressionProcessor (
         val matched = processExpression(expr.expression())
 
         if (expr.matchCaseStatement().count { it is AurumParser.DefaultCaseContext } > 1)
-            throw IllegalStateException("todo")
+            throwAurumError("Multiple default cases are not allowed in match statement", expr, compiler.fileContext)
 
         val default =
             expr.matchCaseStatement().find { it is AurumParser.DefaultCaseContext }!! as AurumParser.DefaultCaseContext
@@ -195,7 +197,7 @@ class ExpressionProcessor (
         return when (expr) {
             is AurumParser.LambdaContext -> processLambda(expr)
             is AurumParser.BinaryContext -> processBinary(expr)
-            else -> throw IllegalStateException("todo")
+            else -> throwAurumError("Unsupported lambda expression type: ${expr.javaClass.simpleName}", expr, compiler.fileContext)
         }
     }
 
@@ -308,7 +310,11 @@ class ExpressionProcessor (
                 }
 
                 if (foundOp == null) {
-                    throw IllegalStateException("Operator '$symbol' not found for types ${left.type} and ${right.type} at ${positions[i]}")
+                    throwAurumError(
+                        "Operator '$symbol' not found for types ${left.type.toUsageString()} and ${right.type.toUsageString()}",
+                        positions[i],
+                        compiler.fileContext
+                    )
                 }
 
                 // В. Проверяем приоритет
@@ -383,7 +389,7 @@ class ExpressionProcessor (
         return when (expr) {
             is AurumParser.PostfixWithPrefContext -> processPostfixWithPref(expr)
             is AurumParser.RecursivePostfixContext -> processRecursivePostfix(expr)
-            else -> throw IllegalStateException("todo")
+            else -> throwAurumError("Unsupported postfix expression type: ${expr.javaClass.simpleName}", expr, compiler.fileContext)
         }
     }
 
@@ -414,13 +420,21 @@ class ExpressionProcessor (
 
     @OptIn(ExperimentalUnsignedTypes::class)
     fun processMemberAccess(value: Value, postfix: AurumParser.MemberAccessContext): Value {
-        val owner = value.type
         val memberName = postfix.Identifier().text
-        val variable = Variable("tmp@member$${postfix.positionString}")
+        return processMemberAccess(value, memberName, postfix.positionString)
+    }
+
+    fun processMemberAccess(
+        value: Value,
+        memberName: String?,
+        positionString: String
+    ): Value {
+        val owner = value.type
+        val variable = Variable("tmp@member$$positionString")
 
         val members = owner.members().filter { it.name() == memberName }
         if (members.isEmpty())
-            throw IllegalStateException("todo")
+            throwAurumError("Member '$memberName' not found in type ${owner.toUsageString()}", positionString, compiler.fileContext)
 
         val type = UnionType.ofTypeModels(
             members
@@ -428,7 +442,7 @@ class ExpressionProcessor (
                     return@map when (it) {
                         is Method -> it.getType()
                         is Field -> it.type()
-                        else -> throw IllegalStateException("todo")
+                        else -> throwAurumError("Unsupported member type: ${it.javaClass.simpleName}", positionString, compiler.fileContext)
                     }
                 }
                 .toTypedArray()
@@ -445,6 +459,7 @@ class ExpressionProcessor (
                     )
                     generator.getMethod(variable.toTarget(), value.value, ref)
                 }
+
                 members.all { it is Field } -> {
                     val ref = FieldGroupRef(
                         members
@@ -452,6 +467,7 @@ class ExpressionProcessor (
                     )
                     generator.getMember(variable.toTarget(), value.value, ref)
                 }
+
                 else -> {
                     val ref = MemberGroupRef(
                         members
@@ -475,6 +491,7 @@ class ExpressionProcessor (
                             constantPool.getReference(member)
                         )
                 }
+
                 is Method -> {
                     if (member.isStatic)
                         generator.getMethodStatic(
@@ -490,7 +507,7 @@ class ExpressionProcessor (
                 }
             }
         } else {
-            throw IllegalStateException("todo")
+            throwAurumError("No members found for member access", positionString, compiler.fileContext)
         }
 
         return variable.toValue()
@@ -503,7 +520,7 @@ class ExpressionProcessor (
         val variable = Variable("tmp@cast$${postfix.positionString}")
 
         if (!newType.isSuperclassOf(initialType) && !newType.isSubclassOf(initialType))
-            throw IllegalStateException("todo")
+            throwAurumError("Invalid cast: type ${initialType.className()} is not a subtype or supertype of ${newType.className()}", postfix, compiler.fileContext)
 
         variable.type = newType
         generator.cast(variable.toTarget(), value.value, constantPool.getReference(newType))
@@ -519,30 +536,30 @@ class ExpressionProcessor (
 
         when (val fn = value.value) {
             is SingleMethodRef -> {
-                processSingleMethodRefCall(variable, value.value, fn, argTypes, args)
+                processSingleMethodRefCall(variable, value.value, fn, argTypes, args, postfix)
             }
 
             is MethodGroupRef -> {
-                processMethodGroupRefCall(fn, argTypes, variable, value.value, args)
+                processMethodGroupRefCall(fn, argTypes, variable, value.value, args, postfix)
             }
 
             is FieldRef -> {
-                processFieldRefCall(variable, fn, argTypes, args)
+                processFieldRefCall(variable, fn, argTypes, args, postfix)
             }
 
             is MemberGroupRef -> {
-                processMethodGroupRefCall(variable, value.value, fn, argTypes, args)
+                processMethodGroupRefCall(variable, value.value, fn, argTypes, args, postfix)
             }
 
             is Reference -> {
-                processReferenceCall(variable, value, fn, argTypes, args)
+                processReferenceCall(variable, value, fn, argTypes, args, postfix)
             }
 
             is TypeRef -> {
-                processTypeRefCall(fn, variable, args)
+                processTypeRefCall(fn, variable, args, postfix)
             }
 
-            else -> throw IllegalStateException("todo")
+            else -> throwAurumError("Unsupported function call type: ${fn.javaClass.simpleName}", postfix, compiler.fileContext)
         }
 
         return variable.toValue()
@@ -551,7 +568,8 @@ class ExpressionProcessor (
     private fun processTypeRefCall(
         fn: TypeRef,
         variable: Variable,
-        args: List<Value>
+        args: List<Value>,
+        ctx: ParserRuleContext
     ) {
         val type = constantPool.dereference<Type>(fn.ref)
 
@@ -567,7 +585,8 @@ class ExpressionProcessor (
         obj: Value,
         fn: Reference,
         argTypes: List<Type>,
-        args: List<Value>
+        args: List<Value>,
+        ctx: ParserRuleContext
     ) {
         val method: Method =
             when (val value = compiler.dataTracker[fn]) {
@@ -575,7 +594,7 @@ class ExpressionProcessor (
                     getFittingMethodFrom(value, argTypes)
                 }
 
-                is SingleMethodRef -> constantPool.dereference<Method>(value.ref)
+                is SingleMethodRef -> constantPool.dereference(value.ref)
 
                 is FieldGroupRef -> getFittingMethodFrom(value, argTypes)
 
@@ -664,7 +683,7 @@ class ExpressionProcessor (
             .filter {
                 it.parameters().map(Parameter::type).zip(argTypes).all { (l, r) ->
                     r.isSubclassOf(l)
-                }
+                } && it.parameters().size == argTypes.size
             }
         return getFittingMethodFrom(methods, argTypes)
     }
@@ -678,13 +697,18 @@ class ExpressionProcessor (
         return getFittingMethodFrom(methods, argTypes)
     }
 
+    @Suppress("USELESS_CAST")
     @OptIn(ExperimentalUnsignedTypes::class)
     private fun getFittingMethodFrom(value: MemberGroupRef, argTypes: List<Type>): Method {
         val methods = constantPool.dereference<Member>(value).map {
             when (it) {
                 is Field -> it.type().findMethod("invoke", argTypes.toTypedArray()).orElseThrow()
                 is Method -> it
-                else -> throw IllegalStateException("todo")
+                else -> throwAurumError(
+                    "Unsupported member type in MemberGroupRef: ${it.javaClass.simpleName}",
+                    null as? ParserRuleContext,
+                    compiler.fileContext
+                )
             }
         }
         return getFittingMethodFrom(methods, argTypes)
@@ -720,13 +744,22 @@ class ExpressionProcessor (
         argTypes: List<Type>,
         variable: Variable,
         value: RValue,
-        args: List<Value>
+        args: List<Value>,
+        ctx: ParserRuleContext
     ) {
         val members = fn.refs.map { constantPool.dereference<Method>(it) }
         val callableMembers = members.filter {
             it.parameters().filterIndexed { i, parameter ->
                 argTypes[i].isSubclassOf(parameter.type())
             }.size == it.parameters().size
+        }
+
+        if (callableMembers.isEmpty()) {
+            throwAurumError(
+                "No method found with given argument types: ${argTypes.map(Type::toUsageString)}",
+                ctx,
+                compiler.fileContext
+            )
         }
 
         val ref = callableMembers.firstNotNullOf {
@@ -746,13 +779,18 @@ class ExpressionProcessor (
         obj: RValue,
         fn: SingleMethodRef,
         argTypes: List<Type>,
-        args: List<Value>
+        args: List<Value>,
+        ctx: ParserRuleContext
     ) {
         val method = constantPool.dereference<Method>(fn.ref)
         if (method.parameters().filterIndexed { i, parameter ->
                 argTypes[i].isSubclassOf(parameter.type())
             }.size != method.parameters().size) {
-            throw IllegalStateException("todo")
+            throwAurumError(
+                "Method parameter types do not match: expected ${method.parameters().map { it.type().className() }}, got ${argTypes.map { it.className() }}",
+                ctx,
+                compiler.fileContext
+            )
         }
 
         if (method.isStatic) {
@@ -773,12 +811,17 @@ class ExpressionProcessor (
         variable: Variable,
         fn: FieldRef,
         argTypes: List<Type>,
-        args: List<Value>
+        args: List<Value>,
+        ctx: ParserRuleContext
     ) {
         val field = constantPool.dereference<Field>(fn.ref)
 
         val method = field.type().findMethod("invoke", argTypes.toTypedArray()).getOrNull()
-            ?: throw IllegalStateException("todo")
+            ?: throwAurumError(
+                "Field type ${field.type().className()} does not have an 'invoke' method matching argument types ${argTypes.map { it.className() }}",
+                ctx,
+                compiler.fileContext
+            )
 
         generator.callVirtual(
             variable.toTarget(),
@@ -796,7 +839,8 @@ class ExpressionProcessor (
         obj: RValue,
         fn: MemberGroupRef,
         argTypes: List<Type>,
-        args: List<Value>
+        args: List<Value>,
+        ctx: ParserRuleContext
     ) {
         val members = constantPool.dereference<Member>(fn)
         val callableMembers = members.filter {
@@ -857,7 +901,7 @@ class ExpressionProcessor (
             val indices = postfix.indexAccessPart().argList().expression().map(::processExpression)
 
             val method = type.findMethod("get", indices.map(Value::type).toTypedArray())
-                .orElseThrow { IllegalStateException("todo") }
+                .orElseThrow { aurumError("Type ${type.className()} does not have a 'get' method matching index types ${indices.map { it.type.className() }}", postfix, compiler.fileContext) }
 
             generator.callVirtual(
                 variable.toTarget(),
@@ -983,7 +1027,7 @@ class ExpressionProcessor (
             is AurumParser.LiteralContext -> processLiteral(expr)
             is AurumParser.ParenContext -> processParen(expr)
             is AurumParser.ArrayContext -> processArray(expr)
-            else -> throw IllegalStateException("todo")
+            else -> throwAurumError("Unsupported primary expression type: ${expr.javaClass.simpleName}", expr, compiler.fileContext)
         }
     }
 
@@ -991,7 +1035,12 @@ class ExpressionProcessor (
     fun processIdentifier(expr: AurumParser.IdentifierContext): Value {
         val identifier = expr.text
 
-        val imported = compiler.fileContext.importMap[identifier] as Any?
+        return processStringIdentifier(identifier, expr.positionString)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    fun processStringIdentifier(identifier: String, positionString: String): Value {
+        val imported = compiler.fileContext.importMap.get<Any>(identifier)
         return when {
             identifier == "this" -> {
                 Value(
@@ -1014,18 +1063,37 @@ class ExpressionProcessor (
 
             imported != null -> {
                 when (imported) {
-                    is Method -> Value(
-                        imported.getType(),
-                        constantPool.getReference(imported)
-                    )
-                    is Field -> Value(
-                        imported.type(),
-                        constantPool.getReference(imported)
-                    )
+                    is MutableSet<*> -> {
+                        (imported as? MutableSet<Method>)?.let {
+                            if (imported.size == 1)
+                                Value(
+                                    imported.first().getType(),
+                                    constantPool.getReference(imported.first())
+                                )
+                            else
+                                Value(
+                                    UnionType.ofTypeModels(imported.map(Method::getType).toTypedArray()),
+                                    constantPool.getReference(imported)
+                                )
+                        } ?: (imported as? MutableSet<Field>)?.let {
+                            if (imported.size == 1)
+                                Value(
+                                    imported.first().type(),
+                                    constantPool.getReference(imported.first())
+                                )
+                            else
+                                Value(
+                                    UnionType.ofTypeModels(imported.map(Field::type).toTypedArray()),
+                                    constantPool.getReference(imported)
+                                )
+                        } ?: throw IllegalStateException("todo")
+                    }
+
                     is Type -> Value(
                         imported,
                         constantPool.getReference(imported)
                     )
+
                     else -> throw IllegalStateException()
                 }
             }
@@ -1086,6 +1154,21 @@ class ExpressionProcessor (
                 return Value(type, value)
             }
 
+            compiler.availableMethods.any {
+                (it.owner() == this.method.owner() || !it.isStatic)
+                        && identifier == it.name()
+            } -> {
+                val method = compiler.availableMethods.find {
+                    (it.owner() == this.method.owner() || !it.isStatic)
+                            && identifier == it.name()
+                } ?: throwAurumError("Method '$identifier' not found", positionString, compiler.fileContext)
+
+                Value(
+                    method.getType(),
+                    constantPool.getReference(method)
+                )
+            }
+
             else -> throw IllegalStateException()
         }
     }
@@ -1111,7 +1194,7 @@ class ExpressionProcessor (
                     Type.ofClass(String::class.java),
                     constantPool.getConstant(expr.text.drop(1).dropLast(1))
                 )
-            expr.text.endsWith("d", true) -> Value(
+            expr.text.endsWith("d", true) || '.' in expr.text -> Value(
                 Type.ofClass(Double::class.java),
                 constantPool.getConstant(expr.text.dropLast(1).toDouble())
             )

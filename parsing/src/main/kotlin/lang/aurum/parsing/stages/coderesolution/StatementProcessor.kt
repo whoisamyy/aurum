@@ -1,10 +1,13 @@
 package lang.aurum.parsing.stages.coderesolution
 
-import lang.aurum.model.Method
-import lang.aurum.model.PrimitiveType
-import lang.aurum.model.Type
+import lang.aurum.ir.*
+import lang.aurum.ir.Target
+import lang.aurum.model.*
 import lang.aurum.model.impl.TypeArgumentImpl
 import lang.aurum.parsing.antlr.AurumParser
+import lang.aurum.parsing.aurumError
+import lang.aurum.parsing.throwAurumError
+import kotlin.jvm.optionals.getOrNull
 
 class StatementProcessor (
     val compiler: IRCompiler,
@@ -29,9 +32,150 @@ class StatementProcessor (
         }
     }
 
-    fun processDeclaration(ctx: AurumParser.DeclarationContext) {}
+    fun processDeclaration(ctx: AurumParser.DeclarationContext) {
+        when (val c = ctx.getChild(0)) {
+            is AurumParser.TypeDefContext -> {
+                compiler.currentScope.typeDecls += c.Identifier().text to compiler.toType(c.typeExpr())
+            }
+            is AurumParser.VarDeclContext -> {
+                processVarDecl(c)
+            }
+            else -> throwAurumError("Unsupported declaration type: ${c.javaClass.simpleName}", ctx, compiler.fileContext)
+        }
+    }
+
+    private fun processVarDecl(member: AurumParser.VarDeclContext) {
+        when (member) {
+            is AurumParser.SingleDeclContext -> processVarDecl(member)
+            is AurumParser.UnpackDeclContext -> processVarDecl(member)
+            is AurumParser.MultiDeclContext -> processVarDecl(member)
+        }
+    }
+    private fun processVarDecl(member: AurumParser.SingleDeclContext) {
+//        val accessFlags = member.modifier().toAccessFlags()
+        val varName = member.Identifier().text
+        val expr = member.expression()?.let {
+            compiler.expressionProcessor.processExpression(it)
+        }
+
+        val type: Type = member.typeExpr()?.let {
+            compiler.toType(it)
+        } ?: expr?.type ?: Type.ofClass(Object::class.java)
+
+        val variable = Variable(varName, type)
+
+        generator.move(variable.toTarget(), expr?.value ?: NullRef)
+        compiler.currentScope += variable
+    }
+    private fun processVarDecl(member: AurumParser.UnpackDeclContext) {
+        val vars = member.varId().map {
+            it.Identifier().text to it.typeExpr()?.let { t -> compiler.toType(t) } }
+
+        val expr = member.expression()?.let {
+            compiler.expressionProcessor.processExpression(it)
+        }
+
+        vars.forEachIndexed { i, (name, type) ->
+            var newType = type
+            if (type == null) {
+                if (expr == null)
+                    throwAurumError("Cannot infer type for unpack declaration: expression is required when type is not specified", member, compiler.fileContext)
+
+                newType = expr.type.findField("component$i").getOrNull()?.type()
+                    ?: Type.ofClass(Object::class.java)
+            }
+
+            val variable = Variable(name, newType)
+
+            expr?.let {
+                val field = it.type.findField("component$i").orElseThrow { aurumError("Type ${it.type.className()} does not have component$i field for unpack declaration", member, compiler.fileContext) }
+                val ref = constantPool.getReference(field)
+
+                generator.getField(variable.toTarget(), it.value, ref)
+            }
+
+            compiler.currentScope += variable
+        }
+    }
+    private fun processVarDecl(member: AurumParser.MultiDeclContext) {
+        member.varIdAssignment().forEach {
+            val varId = it.varId()
+            val name = varId.Identifier().text
+            val expr = it.expression()?.let { e ->
+                compiler.expressionProcessor.processExpression(e)
+            }
+            val type = varId.typeExpr()?.let { compiler.toType(varId.typeExpr()) }
+                ?: expr?.type ?: Type.ofClass(Object::class.java)
+
+            val variable = Variable(name, type)
+            expr?.let { e ->
+                generator.move(variable.toTarget(), e.value)
+            }
+
+            compiler.currentScope += variable
+        }
+    }
+
     fun processAssignmentExpression(ctx: AurumParser.AssignmentExpressionContext) {
-        TODO()
+        when (ctx) {
+            is AurumParser.VarAssignmentContext -> {
+                val (owner, lvalue) = compiler.getLValue(ctx.qualifiedName())
+                when (lvalue) {
+                    is Target.Empty -> {}
+                    is Target -> {
+                        val expr = compiler.expressionProcessor.processExpression(ctx.expression()).value
+                        generator.move(lvalue, expr)
+                    }
+                    is FieldRef -> {
+                        val expr = compiler.expressionProcessor.processExpression(ctx.expression()).value
+                        val field = constantPool.dereference<Field>(lvalue)
+                        if (field.isFinal)
+                            throwAurumError("Cannot assign to final field '${field.name()}'", ctx, compiler.fileContext)
+
+                        if (field.isStatic)
+                            generator.putStatic(lvalue, expr)
+                        else
+                            generator.putField(
+                                if (owner !is NullRef) owner else Reference("this"),
+                                lvalue,
+                                expr
+                            )
+                    }
+                    is Reference -> {
+                        val expr = compiler.expressionProcessor.processExpression(ctx.expression()).value
+                        generator.move(
+                            compiler.currentScope[lvalue.name]?.toTarget()
+                                ?: throwAurumError("Variable '${lvalue.name}' not found in current scope", ctx, compiler.fileContext),
+                            expr
+                        )
+                    }
+                }
+            }
+            is AurumParser.ArrayAssignmentContext -> {
+                val arr = compiler.expressionProcessor.processExpression(ctx.expression(0))
+                val index = ctx.indexAccessPart()
+                val expr = ctx.expression(1)
+
+                var tmpValue = arr
+                index.argList().expression().dropLast(1).forEachIndexed { i, expr ->
+                    val index = compiler.expressionProcessor.processExpression(expr)
+                    val tmpName = "tmp@index@$i$${expr.positionString}"
+                    generator.arrayLoad(Target(tmpName), tmpValue.value, index.value)
+                    tmpValue = Value((tmpValue.type as ArrayType<*>).componentType(), Reference(tmpName))
+                }
+                val lastExpr = index.argList().expression().last()
+                val i = compiler.expressionProcessor.processExpression(lastExpr)
+                compiler.setVariableIndexed(
+                    Variable(
+                        "array$${lastExpr.positionString}",
+                        type = tmpValue.type,
+                        value = tmpValue.value,
+                    ),
+                    i,
+                    compiler.expressionProcessor.processExpression(expr)
+                )
+            }
+        }
     }
     fun processReturnStatement(ctx: AurumParser.ReturnStatementContext) {
         generator.return_(ctx.expression()?.let { compiler.expressionProcessor.processExpression(it) }?.value)
@@ -39,7 +183,37 @@ class StatementProcessor (
     fun processMatchStatement(ctx: AurumParser.MatchStatementContext) {
         compiler.expressionProcessor.processMatchStatement(ctx)
     }
-    fun processIfStatement(ctx: AurumParser.IfStatementContext) {}
+    fun processIfStatement(ctx: AurumParser.IfStatementContext) {
+        val elifBlocks = mutableListOf(
+            { processExpression(ctx.expression(0)).value } to { compiler.process(ctx.block(0)) },
+        )
+        elifBlocks.addAll(
+            ctx.KWelif()?.mapIndexed { i, _ ->
+                { processExpression(ctx.expression(i + 1)).value } to { compiler.process(ctx.block(i + 1)) }
+            } ?: listOf()
+        )
+
+        val elseBlock = { compiler.process(ctx.block().last()) }
+
+        ifElifElse(
+            ctx,
+            elifBlocks,
+            elseBlock
+        )
+    }
+
+    fun ifElifElse(
+        expr: AurumParser.IfStatementContext,
+        elifBlocks: List<Pair<() -> RValue, () -> Unit>> = listOf(),
+        elseBlock: (() -> Unit)? = null
+    ) {
+        val elifScopes = mutableListOf(Scope("if$${expr.KWif().positionString}", compiler.currentScope)) +
+                expr.KWelif().map { Scope("elif$${it.positionString}", compiler.currentScope) }
+        val elseScope = expr.KWelse()?.let { Scope("else$${it.positionString}", compiler.currentScope) }
+        val allScopes = (elifScopes + elseScope).filterNotNull().toList()
+        compiler.expressionProcessor.ifElifElse(allScopes, elifBlocks, elseScope, elseBlock)
+    }
+
     fun processLoopStatement(ctx: AurumParser.LoopStatementContext) {
         compiler.expressionProcessor.processLoopStatement(ctx)
     }
@@ -51,7 +225,7 @@ class StatementProcessor (
 
         val type = exprValue.type
         if (!type.isSubclassOf(Type.ofClass(Iterable::class.java)))
-            throw IllegalStateException("todo")
+            throwAurumError("Type ${type.className()} is not iterable (does not implement Iterable)", ctx, compiler.fileContext)
 
         val iteratorMethod = type.findMethod(
             "iterator",
@@ -101,8 +275,8 @@ class StatementProcessor (
 
         compiler.endScope()
     }
-    fun processExpression(ctx: AurumParser.ExpressionContext) {
-        compiler.expressionProcessor.processExpression(ctx)
+    fun processExpression(ctx: AurumParser.ExpressionContext): Value {
+        return compiler.expressionProcessor.processExpression(ctx)
     }
     fun processBreakStatement(ctx: AurumParser.BreakStatementContext) {
         generator.jump(compiler.currentScope.endLabel) // todo: maybe add expression handling here idk

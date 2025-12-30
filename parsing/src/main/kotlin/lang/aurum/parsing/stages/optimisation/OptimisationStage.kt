@@ -1,5 +1,7 @@
 package lang.aurum.parsing.stages.optimisation
 
+import lang.aurum.Argument
+import lang.aurum.Arguments
 import lang.aurum.ir.CodeAttribute
 import lang.aurum.ir.Instruction
 import lang.aurum.model.Member
@@ -19,6 +21,10 @@ class OptimizationStage(parsingContext: ParsingContext) : ParsingStage(parsingCo
     }
 
     override fun execute(file: FileContext) {
+        if (Arguments.get<OptimisationLevel>() == OptimisationLevel.ORAW) {
+            return
+        }
+
         file.fileClass.methods.forEach { action.invoke(file, it) }
         file.classes.forEach { (k, _) ->
             k.methods().forEach { action.invoke(file, it) }
@@ -30,11 +36,6 @@ interface OptimizationPass {
     fun run(fileCtx: FileContext, instructions: MutableList<Instruction>): Boolean
 }
 
-enum class OptimizationLevel {
-    O1, O2, O3
+enum class OptimisationLevel : Argument {
+    O1, O2, O3, ORAW
 }
-
-data class OptimizationContext(
-    val fileContext: FileContext,
-    val optimisationLevel: OptimizationLevel
-)

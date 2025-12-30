@@ -12,9 +12,8 @@ import kotlin.io.path.outputStream
 
 class VerboseIrFileWriter (
     constantPool: ConstantPool,
-    file: IrFile,
-    vararg args: Argument
-) : IrFileWriter(constantPool, file, *args) {
+    file: IrFile
+) : IrFileWriter(constantPool, file) {
     override fun write(out: Path) {
         val outStream = DataOutputStream(out.outputStream())
 

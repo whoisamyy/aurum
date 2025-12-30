@@ -1,6 +1,8 @@
 package lang.aurum.parsing.stages.coderesolution
 
 import lang.aurum.ir.Instruction
+import lang.aurum.ir.LValue
+import lang.aurum.ir.NullRef
 import lang.aurum.ir.RValue
 import lang.aurum.model.IntersectionType
 import lang.aurum.model.Method
@@ -9,6 +11,7 @@ import lang.aurum.model.UnionType
 import lang.aurum.parsing.antlr.AurumParser
 import lang.aurum.parsing.model.fnType
 import lang.aurum.parsing.stages.FileContext
+import lang.aurum.parsing.throwAurumError
 import org.antlr.v4.runtime.ParserRuleContext
 import org.antlr.v4.runtime.tree.TerminalNode
 
@@ -41,6 +44,55 @@ class IRCompiler(
 
     init {
         currentScope += method.parameters().map { Variable(it.name(), it.type()) }
+    }
+
+    fun getLValue(qualifiedName: AurumParser.QualifiedNameContext): Pair<RValue, LValue> {
+        val identifier = qualifiedName.Identifier(0)
+        var value = expressionProcessor.processStringIdentifier(identifier.text, identifier.positionString)
+        if (qualifiedName.Identifier().size == 1)
+            return NullRef to if (value.value is LValue) value.value else throwAurumError("Expected lvalue but got rvalue: ${value.value}", qualifiedName, fileContext)
+        for (i in qualifiedName.Identifier().dropLast(1)) {
+            value = expressionProcessor.processMemberAccess(
+                value,
+                i.text,
+                i.positionString
+            )
+        }
+        val rval = value.value
+        val lastIdentifier = qualifiedName.Identifier().last()
+        val lval = expressionProcessor.processMemberAccess(
+            value,
+            lastIdentifier.text,
+            lastIdentifier.positionString
+        )
+        return rval to (lval.value as? LValue ?: throwAurumError("Expected lvalue but got rvalue: ${lval.value}", lastIdentifier, fileContext))
+//
+//        val text = qualifiedName.text
+//        if (text in currentScope) {
+//            val variable = currentScope[text]!!
+//            variable.assignments++
+//            return variable.toTarget()
+//        }
+//
+//        val predicate: (Map.Entry<String, Field>) -> Boolean = { (_, f) ->
+//            text == "${f.owner().fullName()}.${f.name()}"
+//                    || text == "${f.owner().className()}.${f.name()}"
+//        }
+//        val fieldMap = fileContext.importMap.fieldMap
+//        if (text in fieldMap) {
+//            val field = fileContext.importMap.get<Field>(text)!!
+//            return constantPool.getReference(field)
+//        } else if (fieldMap.any(predicate)) {
+//            val field = fieldMap.filter(predicate).values.first()
+//            return constantPool.getReference(field)
+//        }
+//
+//        val optionalField = method.owner().findField(text)
+//        if (optionalField.isPresent) {
+//            return constantPool.getReference(optionalField.get())
+//        }
+//
+//        throw IllegalStateException("todo")
     }
 
     fun process(statement: AurumParser.StatementContext) {
@@ -187,7 +239,7 @@ class IRCompiler(
     val availableMethods: List<Method>
         get() {
             val list = mutableListOf<Method>()
-            list += fileContext.importMap.methodMap.values
+            list += fileContext.importMap.methodMap.values.flatMap { it }
             fileContext.importMap.typeMap.values.flatMapTo(list) {
                 it.methods().toList()
             }

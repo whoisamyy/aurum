@@ -29,7 +29,7 @@ class ConstantPoolCleaningStage(parsingContext: ParsingContext) : ParsingStage(p
         instructionsMap += method to instructions
     }
 
-    override fun afterFileContext() {
+    override fun afterFileContext(fileContext: FileContext) {
         val newConstantPool = ConstantPool()
         for (inst in allInstructions) {
             inst::class.memberProperties.filter {

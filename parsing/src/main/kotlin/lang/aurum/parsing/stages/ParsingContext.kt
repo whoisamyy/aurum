@@ -2,7 +2,6 @@ package lang.aurum.parsing.stages
 
 import lang.aurum.model.PrimitiveType
 import lang.aurum.model.Type
-import lang.aurum.parsing.Argument
 import lang.aurum.parsing.antlr.AurumLexer
 import lang.aurum.parsing.antlr.AurumParser
 import lang.aurum.parsing.model.ConstantPool
@@ -20,11 +19,10 @@ abstract class AbstractParsingContext
 data class ParsingContext (
     val workDir: Path,
     val classPath: Set<Path>,
-    val arguments: Set<Argument>,
     val files: LinkedHashSet<FileContext>
 ) : AbstractParsingContext() {
     override fun toString(): String {
-        return "ParsingContext(workDir=$workDir, classPath=$classPath, arguments=$arguments, files=$files)"
+        return "ParsingContext(workDir=$workDir, classPath=$classPath, files=$files)"
     }
 }
 

@@ -99,7 +99,7 @@ class TypeResolver(val fileContext: FileContext) {
     fun toUnresolvedType(ctx: AurumParser.QualifiedNameContext): Type {
         val qName = ctx.Identifier().last().text
         val qPkg = ctx.Identifier().dropLast(1).joinToString(".") { it.text }
-        val type: Type? = fileContext.importMap[qName]
+        val type: Type? = fileContext.importMap.get<Type>(qName) as Type?
 
         if (type != null)
             return type.toMutable()

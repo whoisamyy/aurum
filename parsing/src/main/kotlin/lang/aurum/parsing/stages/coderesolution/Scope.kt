@@ -1,6 +1,7 @@
 package lang.aurum.parsing.stages.coderesolution
 
 import lang.aurum.ir.Label
+import lang.aurum.model.Type
 import lang.aurum.parsing.model.MutableMethod
 
 abstract class AbstractScope(
@@ -11,6 +12,7 @@ abstract class AbstractScope(
     val endLabel = Label("${name}_end")
 
     val variables: MutableMap<String, Variable> = mutableMapOf()
+    val typeDecls: MutableMap<String, Type> = mutableMapOf()
 
     open operator fun plusAssign(variable: Variable) {
         variables += variable.name to variable
@@ -23,6 +25,8 @@ abstract class AbstractScope(
     open operator fun contains(string: String): Boolean = variables.contains(string)
 
     open operator fun get(string: String): Variable? = parentScope?.get(string) ?: variables[string]
+
+    open fun getType(string: String): Type? = parentScope?.getType(string) ?: typeDecls[string]
 }
 
 class Scope(name: String, parentScope: AbstractScope? = null) : AbstractScope(name, parentScope)

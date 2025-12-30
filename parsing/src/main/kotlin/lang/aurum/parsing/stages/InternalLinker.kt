@@ -35,24 +35,7 @@ object InternalLinker : Linker() {
             return // todo
         }
 
-        try {
-            val clazz = ClassLoader.getPlatformClassLoader().loadClass(fullName)
-            val t = Type.ofClass(clazz)
-//        this.className = t.className()
-//        this.pkg = t.pkg()
-            type.superClass = t.superClass()
-            type.interfaces = t.interfaces().orElse(null)?.toMutableList()
-//        this.arrayDimensions = t.arrayDimensions()
-            type.fields = t.fields().toMutableList()
-            type.methods = t.methods().toMutableList()
-            type.accessFlags = t.accessFlags().toMutableList()
-            type.attributes = t.attributes().toMutableList()
-            type.typeParameters = t.typeParameters().orElse(Utils.EMPTY_TYPE_PARAMETERS).toMutableList()
-            type.typeArguments = t.typeArguments().orElse(Utils.EMPTY_TYPE_ARGUMENTS).toMutableList()
-            type.primitive = t.isPrimitive
-            linkingContext.linkTable[fullName] = type
-            return
-        } catch (_: ClassNotFoundException) {}
+        if (linkWithJvm(fullName, type, linkingContext)) return
 
         type.interfaces?.find { !it.isInterface }?.let {
             type.superClass = it
@@ -70,6 +53,33 @@ object InternalLinker : Linker() {
                 link(it, linkingContext)
         }
 
+    }
+
+    fun linkWithJvm(
+        fullName: String,
+        type: MutableType,
+        linkingContext: LinkingContext
+    ): Boolean {
+        try {
+            val clazz = ClassLoader.getPlatformClassLoader().loadClass(fullName)
+            val t = Type.ofClass(clazz)
+    //        this.className = t.className()
+    //        this.pkg = t.pkg()
+            type.superClass = t.superClass()
+            type.interfaces = t.interfaces().orElse(null)?.toMutableList()
+    //        this.arrayDimensions = t.arrayDimensions()
+            type.fields = t.fields().toMutableList()
+            type.methods = t.methods().toMutableList()
+            type.accessFlags = t.accessFlags().toMutableList()
+            type.attributes = t.attributes().toMutableList()
+            type.typeParameters = t.typeParameters().orElse(Utils.EMPTY_TYPE_PARAMETERS).toMutableList()
+            type.typeArguments = t.typeArguments().orElse(Utils.EMPTY_TYPE_ARGUMENTS).toMutableList()
+            type.primitive = t.isPrimitive
+            linkingContext.linkTable[fullName] = type
+            return true
+        } catch (_: ClassNotFoundException) {
+            return false
+        }
     }
 
     override fun link(method: MutableMethod?, linkingContext: LinkingContext) {

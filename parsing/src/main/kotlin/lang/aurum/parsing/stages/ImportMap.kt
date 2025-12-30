@@ -7,20 +7,22 @@ import kotlin.reflect.full.isSubclassOf
 
 class ImportMap(
     val typeMap: MutableMap<String, Type> = mutableMapOf(),
-    val methodMap: MutableMap<String, Method> = mutableMapOf(),
-    val fieldMap: MutableMap<String, Field> = mutableMapOf()
+    val methodMap: MutableMap<String, MutableSet<Method>> = mutableMapOf(),
+    val fieldMap: MutableMap<String, MutableSet<Field>> = mutableMapOf()
 ) {
     operator fun set(key: String, value: Type) {
         typeMap[key] = value
     }
 
-    operator fun set(key: String, value: Method) {
-        methodMap[key] = value
-    }
-
-    operator fun set(key: String, value: Field) {
-        fieldMap[key] = value
-    }
+//    operator fun set(key: String, value: Method) {
+//        methodMap.putIfAbsent(key, mutableSetOf())
+//        methodMap[key]!!.add(value)
+//    }
+//
+//    operator fun set(key: String, value: Field) {
+//        fieldMap.putIfAbsent(key, mutableSetOf())
+//        fieldMap[key]!!.add(value)
+//    }
 
     @JvmName("plusAssignType")
     operator fun plusAssign(pair: Pair<String, Type>) {
@@ -29,15 +31,19 @@ class ImportMap(
 
     @JvmName("plusAssignMethod")
     operator fun plusAssign(pair: Pair<String, Method>) {
-        methodMap += pair
+        val (key, value) = pair
+        methodMap.putIfAbsent(key, mutableSetOf())
+        methodMap[key]!!.add(value)
     }
 
     @JvmName("plusAssignField")
     operator fun plusAssign(pair: Pair<String, Field>) {
-        fieldMap += pair
+        val (key, value) = pair
+        fieldMap.putIfAbsent(key, mutableSetOf())
+        fieldMap[key]!!.add(value)
     }
 
-    inline operator fun <reified T> get(key: String): T? {
+    inline operator fun <reified T> get(key: String): Any? {
         return when {
             T::class.isSubclassOf(Type::class) -> typeMap[key] as T?
             T::class.isSubclassOf(Field::class) -> fieldMap[key] as T?
