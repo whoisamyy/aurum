@@ -33,7 +33,7 @@ public abstract class ParsingStage {
                 }
                 afterMethods();
             });
-            afterFileContext();
+            afterFileContext(fileContext);
         });
         afterAll();
     }
@@ -46,6 +46,6 @@ public abstract class ParsingStage {
     public void afterFields() {}
     public void afterMethods() {}
     public void afterType() {}
-    public void afterFileContext() {}
+    public void afterFileContext(FileContext fileContext) {}
     public void afterAll() {}
 }
