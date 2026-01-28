@@ -16,14 +16,11 @@ class DependenciesResolutionStage(parsingContext: ParsingContext) : ParsingStage
 
             val id = it.Identifier()
             if (id != null) {
-                fileContext.importMap[id.text] = MutableTypePool.get(
-                    it.qualifiedName().Identifier().last().text,
-                    it.qualifiedName().Identifier().dropLast(1).joinToString(".") { id -> id.text }
-                )
+                fileContext.importMap += id.text to it.qualifiedName().text
             } else {
-                fileContext.importMap[it.qualifiedName().Identifier().last().text] = MutableTypePool.get(
-                    it.qualifiedName().Identifier().last().text,
-                    it.qualifiedName().Identifier().dropLast(1).joinToString(".") { id -> id.text }
+                fileContext.importMap += Symbol(
+                    it.qualifiedName().Identifier().dropLast(1).joinToString(".") { id -> id.text },
+                    it.qualifiedName().Identifier().last().text
                 )
             }
         }
