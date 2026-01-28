@@ -1,13 +1,29 @@
 package lang.aurum.parsing.stages
 
+import lang.aurum.model.Member
 import lang.aurum.model.Type
 import lang.aurum.model.impl.Utils
 import lang.aurum.parsing.model.MutableField
 import lang.aurum.parsing.model.MutableMethod
 import lang.aurum.parsing.model.MutableType
+import lang.aurum.parsing.model.MutableTypePool
 import kotlin.io.path.Path
 
 object InternalLinker : Linker() {
+    override fun linkType(
+        symbol: String,
+        linkingContext: LinkingContext
+    ): Type {
+        TODO("Not yet implemented")
+    }
+
+    override fun linkMember(
+        symbol: String,
+        linkingContext: LinkingContext
+    ): Member {
+        TODO("Not yet implemented")
+    }
+
     override fun link(type: MutableType?, linkingContext: LinkingContext) {
         if (type == null)
             return
@@ -79,6 +95,35 @@ object InternalLinker : Linker() {
             return true
         } catch (_: ClassNotFoundException) {
             return false
+        }
+    }
+
+    fun linkWithJvm (
+        fullName: String,
+        linkingContext: LinkingContext
+    ): MutableType? {
+        try {
+            val clazz = ClassLoader.getPlatformClassLoader().loadClass(fullName)
+            val t = Type.ofClass(clazz)
+
+            val type = MutableTypePool.get(
+                t.className(),
+                t.pkg(),
+                superClass = t.superClass(),
+                interfaces = t.interfaces().orElse(null)?.toMutableList(),
+                fields = t.fields().toMutableList(),
+                methods = t.methods().toMutableList(),
+                accessFlags = t.accessFlags().toMutableList(),
+                attributes = t.attributes().toMutableList(),
+                typeParameters = t.typeParameters().orElse(Utils.EMPTY_TYPE_PARAMETERS).toMutableList(),
+                typeArguments = t.typeArguments().orElse(Utils.EMPTY_TYPE_ARGUMENTS).toMutableList(),
+                primitive = t.isPrimitive,
+            )
+
+            linkingContext.linkTable[fullName] = type
+            return type
+        } catch (_: ClassNotFoundException) {
+            return null
         }
     }
 
