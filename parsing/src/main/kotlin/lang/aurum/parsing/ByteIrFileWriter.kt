@@ -2,16 +2,16 @@ package lang.aurum.parsing
 
 import lang.aurum.ir.*
 import lang.aurum.model.*
-import lang.aurum.parsing.model.ConstantPool
+import lang.aurum.parsing.model.MutableField
+import lang.aurum.parsing.model.MutableMethod
 import lang.aurum.parsing.model.MutableType
 import java.io.DataOutputStream
 import java.nio.file.Path
 import kotlin.io.path.outputStream
 
 class ByteIrFileWriter (
-    constantPool: ConstantPool,
     file: IrFile
-) : IrFileWriter(constantPool, file) {
+) : IrFileWriter(file) {
     override fun write(out: Path) {
         val outStream = DataOutputStream(out.outputStream())
 
@@ -31,19 +31,19 @@ class ByteIrFileWriter (
 
             when (k) {
                 is Method -> {
-                    val fullName = k.owner().fullName()
+                    val fullName = k.owner().toUsageString()
                     val name = k.name()
-                    val params = k.parameters().map { "${it.type().fullName()};" }
-                    val returnType = "${k.returnType().fullName()};"
+                    val params = k.parameters().map { "${it.type().toUsageString()};" }
+                    val returnType = "${k.returnType().toUsageString()};"
                     val str = "$fullName.$name($params)$returnType"
                     out.writeByte('M'.code)
                     out.writeByte(':'.code)
                     out.writeBytes(str)
                 }
                 is Field -> {
-                    val fullName = k.owner().fullName()
+                    val fullName = k.owner().toUsageString()
                     val name = k.name()
-                    val type = "${k.type().fullName()};"
+                    val type = "${k.type().toUsageString()};"
                     val str = "$fullName.$name;$type"
                     out.writeByte('F'.code)
                     out.writeByte(':'.code)
@@ -52,7 +52,7 @@ class ByteIrFileWriter (
                 is Type -> {
                     out.writeByte('T'.code)
                     out.writeByte(':'.code)
-                    out.writeBytes("${k.fullName()};")
+                    out.writeBytes("${k.toUsageString()};")
                 }
                 else -> when (v) {
                     is StringRef -> v.write(this, out)
@@ -126,35 +126,12 @@ class ByteIrFileWriter (
 
     private fun Type.write(out: DataOutputStream) {
         out.writeInt(intFlags())
-        out.writeBytes("class ${fullName()}")
+        out.writeBytes("class ${toUsageString()}")
 
-        if (typeArguments().isEmpty) {
-            typeParameters().ifPresent { params ->
-                out.writeBytes(
-                    "<${
-                        params.joinToString(",") {
-                            "${it.name()}:${it.bound().fullName()}"
-                        }
-                    }>"
-                )
-            }
-        } else {
-            out.writeBytes(typeArguments().get().joinToString {
-                it.bound().fullName()
-            })
-            typeParameters().ifPresent {
-                out.writeBytes(it.clone().filter { param ->
-                    typeArguments().get().any { arg -> arg.name().equals(param.name()) }
-                }.joinToString(",", prefix = "<", postfix = ">") { param ->
-                    "${param.name()}:${param.bound().fullName()}"
-                })
-            }
-        }
-
-        out.writeBytes(":${superClass().fullName()}")
+        out.writeBytes(":${superClass().toUsageString()}")
         interfaces().ifPresent {
             out.writeBytes(",")
-            out.writeBytes(it.joinToString(","))
+            out.writeBytes(it.joinToString(",") { t -> t.toUsageString() })
         }
 
         attributes().forEachIndexed { i, it ->
@@ -174,23 +151,26 @@ class ByteIrFileWriter (
 
     private fun Member.write(out: DataOutputStream) {
         when (this) {
-            is Method -> this.write(out)
-            is Field -> this.write(out)
+            is MutableMethod -> this.write(out)
+            is MutableField -> this.write(out)
         }
     }
 
     private fun Method.write(out: DataOutputStream) {
+        if (this !is MutableMethod) return
+
         out.writeBytes("fn ")
         typeParameters().ifPresent { params ->
-            out.writeBytes("<${params.joinToString(",") {
-                "${it.name()}:${it.bound().fullName()}"
-            }}>")
+            if (params.isNotEmpty())
+                out.writeBytes(params.joinToString(",", prefix = "<", postfix = ">") {
+                    "${it.name()}:${it.bound().toUsageString()}"
+                })
         }
         out.writeBytes("${name()}(${
             parameters().map {
-                "${name()}:${it.type().fullName()};"
+                "${it.name()}:${it.type().toUsageString()};"
             }
-        }):${returnType().fullName()};")
+        }):${returnType().toUsageString()};")
         attributes().forEachIndexed { i, it ->
             it.write(out)
             if (i != attributes().size-1) {
@@ -201,9 +181,11 @@ class ByteIrFileWriter (
     }
 
     private fun Field.write(out: DataOutputStream) {
+        if (this !is MutableField) return
+        
         out.writeBytes(name())
         out.writeByte(':'.code)
-        out.writeBytes(type().fullName())
+        out.writeBytes(type().toUsageString())
         attributes().forEachIndexed { i, it ->
             it.write(out)
             if (i != attributes().size-1) {
@@ -214,6 +196,7 @@ class ByteIrFileWriter (
     }
 
     private fun Attribute.write(out: DataOutputStream) {
+        if (!this.isVisible) return
         out.writeByte('{'.code)
         out.writeBytes("name:${name()}")
         values().forEach { (name, value) ->

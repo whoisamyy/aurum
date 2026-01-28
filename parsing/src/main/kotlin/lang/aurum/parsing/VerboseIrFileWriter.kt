@@ -2,7 +2,6 @@ package lang.aurum.parsing
 
 import lang.aurum.ir.*
 import lang.aurum.model.*
-import lang.aurum.parsing.model.ConstantPool
 import lang.aurum.parsing.model.MutableField
 import lang.aurum.parsing.model.MutableMethod
 import lang.aurum.parsing.model.MutableType
@@ -11,9 +10,8 @@ import java.nio.file.Path
 import kotlin.io.path.outputStream
 
 class VerboseIrFileWriter (
-    constantPool: ConstantPool,
     file: IrFile
-) : IrFileWriter(constantPool, file) {
+) : IrFileWriter(file) {
     override fun write(out: Path) {
         val outStream = DataOutputStream(out.outputStream())
 
