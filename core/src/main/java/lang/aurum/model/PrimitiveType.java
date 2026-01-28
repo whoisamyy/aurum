@@ -1,7 +1,5 @@
 package lang.aurum.model;
 
-import lang.aurum.model.impl.PrimitiveTypeImpl;
-import lang.aurum.model.impl.TemplateTypeImpl;
 import lang.aurum.model.impl.Utils;
 import org.jetbrains.annotations.NotNull;
 
@@ -9,17 +7,8 @@ import java.lang.reflect.AccessFlag;
 import java.util.Optional;
 
 public interface PrimitiveType extends Type {
-    PrimitiveType VOID = PrimitiveTypeImpl.VOID;
-    PrimitiveType BOOLEAN = PrimitiveTypeImpl.BOOLEAN;
-    PrimitiveType BYTE = PrimitiveTypeImpl.BYTE;
-    PrimitiveType SHORT = PrimitiveTypeImpl.SHORT;
-    PrimitiveType CHAR = PrimitiveTypeImpl.CHAR;
-    PrimitiveType INT = PrimitiveTypeImpl.INT;
-    PrimitiveType FLOAT = PrimitiveTypeImpl.FLOAT;
-    PrimitiveType LONG = PrimitiveTypeImpl.LONG;
-    PrimitiveType DOUBLE = PrimitiveTypeImpl.DOUBLE;
-
     String jvmName();
+    Type boxed();
 
     @NotNull
     @Override
@@ -30,24 +19,27 @@ public interface PrimitiveType extends Type {
     @NotNull
     @Override
     default Type superClass() {
-        return Type.ofClass(Object.class);
+        return Types.OBJECT;
     }
 
-    @NotNull
+
     @Override
-    default Optional<Type[]> interfaces() {
+    default @NotNull Optional<@NotNull Type @NotNull []> interfaces() {
         return Optional.empty();
     }
 
-    @NotNull
     @Override
-    default Type withTypeArguments(TypeArgument @NotNull [] typeArguments) {
+    default @NotNull PrimitiveType withTypeArguments(@NotNull TypeArgument @NotNull [] typeArguments) {
         return this; // todo: add logging
     }
 
-    @NotNull
     @Override
-    default Type withTypeArguments(Type @NotNull [] typeArguments) {
+    default @NotNull PrimitiveType withTypeArguments(@NotNull Type @NotNull [] typeArguments) {
+        return this;
+    }
+
+    @Override
+    default @NotNull PrimitiveType withDefaultTypeArguments() {
         return this;
     }
 
@@ -101,13 +93,5 @@ public interface PrimitiveType extends Type {
     @Override
     default Attribute[] attributes() {
         return Utils.EMPTY_ATTRIBUTES;
-    }
-
-    static TemplateType of(String name, int arrayDimensions) {
-        return new TemplateTypeImpl(name, arrayDimensions);
-    }
-
-    static TemplateType of(String name) {
-        return of(name, 0);
     }
 }

@@ -6,7 +6,9 @@ import lang.aurum.model.impl.Utils;
 import org.jetbrains.annotations.NotNull;
 
 import java.lang.classfile.TypeKind;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 
 public interface Type extends Accessible, Attributable, Generic {
@@ -66,6 +68,8 @@ public interface Type extends Accessible, Attributable, Generic {
     default boolean isSubclassOf(Type other) {
         if (this.fullName().equals(other.fullName()))
             return true;
+
+        if (other instanceof TemplateType) return true;
 
         if (other instanceof UnionType union) {
             return Arrays.stream(union.types()).anyMatch(this::isSubclassOf);
@@ -145,6 +149,8 @@ public interface Type extends Accessible, Attributable, Generic {
     @NotNull Type withTypeArguments(TypeArgument @NotNull [] typeArguments);
     @Override
     @NotNull Type withTypeArguments(Type @NotNull [] typeArguments);
+    @Override
+    @NotNull Type withDefaultTypeArguments();
 
     default @NotNull Type asArrayWithTypeArguments(int dimensions, TypeArgument[] typeArguments) {
         return asArray(dimensions).withTypeArguments(typeArguments);
@@ -229,6 +235,8 @@ public interface Type extends Accessible, Attributable, Generic {
     default @NotNull Optional<Method> findMethod(String name, Type returnType, Type[] parameterTypes) {
         return Arrays.stream(methods())
                 .filter(m -> name.equals(m.name()))
+                .filter(m -> !m.isSynthetic())
+                .filter(m -> !m.isBridge())
                 .filter(m -> returnType.isSubclassOf(m.returnType()))
                 .filter(m -> {
                     Type[] array = Arrays.stream(m.parameters()).map(Parameter::type).toArray(Type[]::new);
@@ -254,6 +262,8 @@ public interface Type extends Accessible, Attributable, Generic {
     default @NotNull Optional<Method> findMethod(String name, Type[] parameterTypes) {
         return Arrays.stream(methods())
                      .filter(m -> name.equals(m.name()))
+                     .filter(m -> !m.isSynthetic())
+                     .filter(m -> !m.isBridge())
                      .filter(m -> {
                          Type[] array = Arrays.stream(m.parameters()).map(Parameter::type).toArray(Type[]::new);
                          int arrayLength = array.length;
@@ -287,6 +297,8 @@ public interface Type extends Accessible, Attributable, Generic {
     default @NotNull Optional<Method> findMethod(String name) {
         return Arrays.stream(methods())
                      .filter(m -> name.equals(m.name()))
+                     .filter(m -> !m.isSynthetic())
+                     .filter(m -> !m.isBridge())
                      .findFirst();
     }
 
@@ -314,6 +326,16 @@ public interface Type extends Accessible, Attributable, Generic {
         return Arrays.stream(fields())
                 .filter(f -> name.equals(f.name()))
                 .findFirst();
+    }
+
+    default @NotNull List<@NotNull Type> getAllInterfaces() {
+        return this.interfaces()
+                   .map(List::of)
+                   .map(ArrayList::new)
+                   .orElse(new ArrayList<>())
+                   .stream()
+                   .flatMap(t -> t.getAllInterfaces().stream())
+                   .toList();
     }
 
     default String toUsageString() {

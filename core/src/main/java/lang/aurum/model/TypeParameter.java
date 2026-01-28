@@ -11,6 +11,6 @@ public interface TypeParameter {
     }
 
     static TypeParameter of(String name) {
-        return new TypeParameterImpl(name, Type.ofClass(Object.class));
+        return new TypeParameterImpl(name, Types.OBJECT);
     }
 }

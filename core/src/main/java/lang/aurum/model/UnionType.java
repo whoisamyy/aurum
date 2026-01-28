@@ -56,11 +56,14 @@ public interface UnionType extends Type {
         return Optional.empty();
     }
 
+    @Override
+    @NotNull UnionType withDefaultTypeArguments();
+
     @NotNull
     @Override
     default Type superClass() {
         Type[] types = types();
-        if (types == null || types.length == 0) return Type.ofClass(Object.class);
+        if (types == null || types.length == 0) return Types.OBJECT;
 
         // Try each ancestor ofMethod the first type (including itself) as a candidate
         for (Type candidate = types[0]; candidate != null; candidate = candidate.superClass()) {
@@ -84,7 +87,7 @@ public interface UnionType extends Type {
                 return candidate;
             }
         }
-        return Type.ofClass(Object.class);
+        return Types.OBJECT;
     }
 
     @NotNull

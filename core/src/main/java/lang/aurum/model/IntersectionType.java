@@ -20,6 +20,9 @@ public interface IntersectionType extends Type {
     @Override
     @NotNull IntersectionType withTypeArguments(Type @NotNull [] typeArguments);
 
+    @Override
+    @NotNull IntersectionType withDefaultTypeArguments();
+
     @NotNull
     @Override
     default IntersectionType asArrayWithTypeArguments(int dimensions, TypeArgument[] typeArguments) {
@@ -73,7 +76,7 @@ public interface IntersectionType extends Type {
     @Override
     default Type superClass() {
         Type[] types = types();
-        if (types == null || types.length == 0) return Type.ofClass(Object.class);
+        if (types == null || types.length == 0) return Types.OBJECT;
 
         // GLB: find a type among the components that is a subtype ofMethod all others
         for (Type candidate : types) {
@@ -96,7 +99,7 @@ public interface IntersectionType extends Type {
                 return candidate;
             }
         }
-        return Type.ofClass(Object.class);
+        return Types.OBJECT;
     }
 
     @NotNull

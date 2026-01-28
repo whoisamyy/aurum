@@ -49,6 +49,11 @@ public interface TemplateType extends Type {
         return this;
     }
 
+    @Override
+    default @NotNull Type withDefaultTypeArguments() {
+        return this;
+    }
+
     @NotNull
     @Override
     default AccessFlag[] accessFlags() {
