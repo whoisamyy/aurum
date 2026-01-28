@@ -3,7 +3,6 @@ package lang.aurum.parsing.stages
 import lang.aurum.parsing.antlr.AurumParser
 import java.nio.file.Files
 import java.nio.file.Path
-import kotlin.collections.plusAssign
 import kotlin.io.path.Path
 import kotlin.io.path.isDirectory
 import kotlin.io.path.notExists
@@ -34,15 +33,12 @@ class FileFinder(
      */
     private fun findFiles(dir: Path, pkgName: List<String>): List<Path> {
         val cacheKey = dir to pkgName
-        // 1. Check cache first
         if (filesCache.containsKey(cacheKey)) {
             return filesCache[cacheKey]!!
         }
 
-        // 2. If not cached, compute the result
         val foundFiles = findFilesLogic(dir, pkgName)
 
-        // 3. Cache and return the result
         filesCache[cacheKey] = foundFiles
         return foundFiles
     }
@@ -78,12 +74,12 @@ class FileFinder(
     private data class ResolvedPackage(val path: Path, val foundPackage: List<String>)
 
     /**
-     * Walks up the package structure to find the highest-level (deepest)
-     * existing path and the corresponding package parts.
+     * Walks up the package structure to find the deepest
+     * existing srcPath and the corresponding package parts.
      *
      * E.g., if dir="/src" and pkgName=["com", "example", "util"], but
      * only "/src/com/example" exists, this returns:
-     * (path="/src/com/example", foundPackage=["com", "example"])
+     * (srcPath="/src/com/example", foundPackage=["com", "example"])
      */
     private fun resolveHighestExistingPath(dir: Path, pkgName: List<String>): ResolvedPackage {
         var pkg = pkgName
@@ -95,10 +91,9 @@ class FileFinder(
 
         while (pathCandidate.notExists() && pkg.isNotEmpty()) {
             pkg = pkg.dropLast(1)
-            pathCandidate = pathCandidate.parent // Walk up to the parent
+            pathCandidate = pathCandidate.parent
         }
 
-        // If pkg is now empty, pathCandidate will be the base 'dir'
         return ResolvedPackage(pathCandidate, pkg)
     }
 
@@ -129,6 +124,31 @@ class FileFinder(
                     }
                     is AurumParser.DecoratorDeclContext -> {
                         return it.Identifier().text == memberName[0]
+                    }
+                    is AurumParser.ExtensionDeclContext -> {
+                        return it.extensionMember().any { member ->
+                            member.operatorDecl()?.let { op -> op.OperatorSymbol().text == memberName[0] } == true
+                            || member.funcDecl()?.let { fn -> fn.funcSign().Identifier().text == memberName[0] } == true
+                            || member.varDecl()?.let { field ->
+                                when (field) {
+                                    is AurumParser.SingleDeclContext -> {
+                                        field.Identifier().text == memberName[0]
+                                    }
+
+                                    is AurumParser.UnpackDeclContext -> {
+                                        field.varId().any { id -> id.Identifier().text == memberName[0] }
+                                    }
+
+                                    is AurumParser.MultiDeclContext -> {
+                                        field.varIdAssignment()
+                                            .map { id -> id.varId() }
+                                            .any { id -> id.Identifier().text == memberName[0] }
+                                    }
+
+                                    else -> false
+                                }
+                            } == true
+                        }
                     }
                     is AurumParser.VarDeclContext -> {
                         when (it) {
