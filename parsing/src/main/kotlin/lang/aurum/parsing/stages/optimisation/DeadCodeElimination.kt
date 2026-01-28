@@ -1,6 +1,8 @@
 package lang.aurum.parsing.stages.optimisation
 
 import lang.aurum.ir.*
+import lang.aurum.parsing.attribute.contains
+import lang.aurum.parsing.attribute.get
 import lang.aurum.parsing.stages.FileContext
 
 object DeadCodeElimination : OptimizationPass {
@@ -8,72 +10,60 @@ object DeadCodeElimination : OptimizationPass {
         fileCtx: FileContext,
         instructions: MutableList<Instruction>
     ): Boolean {
-        // Шаг 1: собрать множество всех использованных имён
-//        val used = getUsages(instructions)
-        val usages = getUsages(instructions)
-
-        // Шаг 2: определить, какие инструкции можно удалить
-        val newList = mutableListOf<Instruction>()
         var changed = false
 
-        for (inst in instructions) {
-            val targetName = when (inst) {
-                is Move -> inst.target.name
-                is BinaryOp -> inst.target.name
-                is Neg -> inst.target.name
-                is Call -> inst.target.name
-                is CallMethod -> inst.target.name
-                is CallVirtual -> inst.target.name
-                is InvokeConstructor -> inst.target.name
-                is Closure -> inst.target.name
-                is GetMember -> inst.target.name
-                is GetMethod -> inst.target.name
-                is GetMethodStatic -> inst.target.name
-                is GetField -> inst.target.name
-                is GetStatic -> inst.target.name
-                is ArrayLoad -> inst.target.name
-                is Cast -> inst.target.name
-                is InstanceOf -> inst.target.name
-                is TypeOf -> inst.target.name
-                is Phi -> inst.target.name
-                is New -> inst.target.name
-                is NewArray -> inst.target.name
-                else -> null
-            }
+        fun eliminate() {
+            val usages = getUsages(instructions)
+            val newList = mutableListOf<Instruction>()
+            for (inst in instructions) {
+                val targetName = when (inst) {
+                    is Instruction.WithAssignment -> (inst.target as? Reference)?.name
+                    else -> null
+                }
 
-            val hasSideEffects = when (inst) {
-                is PutField,
-                is PutStatic,
-                is ArrayStore,
-                is Throw,
-                is Return,
-                is Jump,
-                is JumpIf,
-                is TryBegin,
-                is TryEnd,
-                is Catch,
-                is Call,
-                is CallMethod,
-                is CallVirtual,
-                is InvokeConstructor,
-                is Switch -> true
-                else -> false
-            }
+                val hasSideEffects = when (inst) {
+                    is PutField,
+                    is ArrayStore,
+                    is Throw,
+                    is Return,
+                    is Jump,
+                    is JumpIf,
+                    is TryBegin,
+                    is TryEnd,
+                    is Catch,
+                    is Call,
+                    is CallMethod,
+                    is CallVirtual,
+                    is InvokeConstructor,
+                    is Switch -> true
 
-            // если инструкция не имеет побочных эффектов и результат не используется — удаляем
-            if (targetName != null && targetName !in usages && !hasSideEffects) {
-                changed = true
-//                newList.add(Nop)
-                continue
-            }
+                    is Move -> inst.target is FieldRef
+                    else -> false
+                }
 
-            newList.add(inst)
+                if (targetName != null && targetName !in usages /*&& !hasSideEffects*/) {
+                    if (hasSideEffects)
+                        when (inst) {
+                            is Call -> newList.add(inst.copy(target = Reference.Empty))
+                            is CallMethod -> newList.add(inst.copy(target = Reference.Empty))
+                            is CallVirtual -> newList.add(inst.copy(target = Reference.Empty))
+                        }
+
+                    changed = true
+                    continue
+                }
+
+                newList.add(inst)
+            }
+            if (changed) {
+                instructions.clear()
+                instructions.addAll(newList)
+            }
         }
 
-        if (changed) {
-            instructions.clear()
-            instructions.addAll(newList)
-        }
+        eliminate()
+        eliminate()
+
 
         return changed
     }
@@ -81,17 +71,18 @@ object DeadCodeElimination : OptimizationPass {
     private fun getUsages(
         instructions: MutableList<Instruction>
     ): MutableSet<String> {
-        val used: MutableSet<String> = mutableSetOf()
+        val used: MutableMap<String, RValue> = mutableMapOf()
 
         fun addRef(ref: RValue?) {
             when (ref) {
-                is Reference -> used.add(ref.name)
+                is Reference -> {
+                    used[ref.name] = ref
+                }
                 is RValue -> {} // ignore constant pool refs, labels
                 else -> {}
             }
         }
 
-        // Собираем все ссылки
         for (inst in instructions) {
             when (inst) {
                 is Move -> addRef(inst.ref)
@@ -124,9 +115,8 @@ object DeadCodeElimination : OptimizationPass {
                     addRef(inst.obj); addRef(inst.value)
                 }
 
-                is GetMethodStatic -> {}
-                is GetStatic -> {}
-                is PutStatic -> addRef(inst.value)
+                is GetMethodStatic -> addRef(inst.method)
+                is GetStatic -> addRef(inst.field)
                 is ArrayLoad -> {
                     addRef(inst.array); addRef(inst.index)
                 }
@@ -148,6 +138,13 @@ object DeadCodeElimination : OptimizationPass {
             }
         }
 
-        return used
+        used.values.forEach {
+            val ref = (it as Reference)
+            if (!ref.attributes.contains<UsagesAttribute>())
+                ref.attributes += UsagesAttribute()
+            ref.attributes.get<UsagesAttribute>()!!.usages++
+        }
+
+        return used.keys
     }
 }

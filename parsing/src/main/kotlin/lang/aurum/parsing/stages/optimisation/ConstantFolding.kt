@@ -6,79 +6,369 @@ import lang.aurum.parsing.stages.FileContext
 object ConstantFolding : OptimizationPass {
     override fun run(fileCtx: FileContext, instructions: MutableList<Instruction>): Boolean {
         var changed = false
-        val consts = mutableMapOf<Any, Any>()
         val constantPool = fileCtx.constantPool
-        consts += constantPool.constantPool
+        val constants = mutableMapOf<String, Number>()
 
+        fun getConstantValue(rvalue: RValue): Number? {
+            return when (rvalue) {
+                is Reference.Named -> null // constants[rvalue.name]
+                is ConstantPoolRef -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val value = constantPool.dereference<Any>(rvalue)
+                    value as? Number
+                }
+                else -> null
+            }
+        }
+
+        fun invalidateVariable(lvalue: LValue) {
+            if (lvalue is Reference.Named) {
+                constants.remove(lvalue.name)
+            }
+        }
+        
         for (i in instructions.indices) {
-            val inst = instructions[i]
-            when (inst) {
-                is Move -> {
-                    val target = inst.target
-                    val ref = if (inst.ref !is ConstRef<*>) inst.ref.toString() else inst.ref
-                    if (ref is Reference) {
-                        consts[target.name] = consts[ref.name]!!
-                        continue
-                    }
-                    if (consts.keys.containsRef(ref)) {
-                        consts += target.name to consts[ref]!!
-                        consts += ref to consts[ref]!!
-                        continue
-                    }
-                    if (ref is ConstantPoolRef) {
-                        consts += target.name to constantPool.dereference(ref.ref.toInt())
+            when (val inst = instructions[i]) {
+                is BinaryOp -> {
+                    val left = getConstantValue(inst.left)
+                    val right = getConstantValue(inst.right)
+                    
+                    if (left != null && right != null) {
+                        // Both operands are constants - fold the operation
+                        val result = when (inst.opcode) {
+                            Opcode.Add -> left + right
+                            Opcode.Sub -> left - right
+                            Opcode.Mul -> left * right
+                            Opcode.Div -> left / right
+                            Opcode.Mod -> left % right
+                            Opcode.And -> left and right
+                            Opcode.Or -> left or right
+                            Opcode.Xor -> left xor right
+                            Opcode.Shl -> left shl right
+                            Opcode.Shr -> left shr right
+                            Opcode.Ushr -> left ushr right
+                            else -> null
+                        }
+                        
+                        if (result != null) {
+                            // Replace with Move instruction containing the constant
+                            val constRef = constantPool.getConstant(result)
+                            val target = inst.target
+                            instructions[i] = Move(target, constRef)
+                            
+                            // Track the constant value for the target variable
+                            if (target is Reference.Named) {
+                                constants[target.name] = result
+                            }
+                            
+                            changed = true
+                        } else {
+                            // Operation not foldable - invalidate target
+                            invalidateVariable(inst.target)
+                        }
+                    } else {
+                        // At least one operand is not constant - invalidate target
+                        invalidateVariable(inst.target)
                     }
                 }
-                is BinaryOp -> {
-                    val leftRef = if (inst.left !is ConstRef<*>) inst.left.toString() else inst.left
-                    val rightRef = if (inst.right !is ConstRef<*>) inst.right.toString() else inst.right
-                    val left = if (consts.keys.containsRef(leftRef)) consts[leftRef] else null
-                    val right = if (consts.keys.containsRef(rightRef)) consts[rightRef] else null
-                    if (left is Number && right is Number) {
-                        val result = when (inst.opcode) {
-                            Opcode.Add -> left.toDouble() + right.toDouble()
-                            Opcode.Sub -> left.toDouble() - right.toDouble()
-                            Opcode.Mul -> left.toDouble() * right.toDouble()
-                            Opcode.Div -> left.toDouble() / right.toDouble()
-                            Opcode.Mod -> left.toDouble() % right.toDouble()
-                            Opcode.And -> left.toLong() and right.toLong()
-                            Opcode.Or -> left.toLong() or right.toLong()
-                            Opcode.Xor -> left.toLong() xor right.toLong()
-                            Opcode.Shl -> left.toLong() shl right.toInt()
-                            Opcode.Shr -> left.toLong() shr right.toInt()
-                            Opcode.Ushr -> left.toLong() ushr right.toInt()
+                
+                is Move -> {
+                    val target = inst.target
+                    invalidateVariable(target)
+
+                    val constValue = getConstantValue(inst.ref)
+                    if (constValue != null && target is Reference.Named) {
+                        constants[target.name] = constValue
+                    } else if (target is Reference.Named) {
+                        constants.remove(target.name)
+                    }
+                }
+                
+                is Neg -> {
+                    val target = inst.target
+                    invalidateVariable(target)
+                    val constValue = getConstantValue(inst.ref)
+                    if (constValue != null && target is Reference.Named) {
+                        val result = when (constValue) {
+                            is Byte -> (-constValue).toByte()
+                            is Short -> (-constValue).toShort()
+                            is Int -> -constValue
+                            is Long -> -constValue
+                            is Float -> -constValue
+                            is Double -> -constValue
                             else -> null
                         }
                         if (result != null) {
-                            consts[inst.target.name] = result
-                            instructions[i] = Move(inst.target, constantPool.getConstant(result))
+                            val constRef = constantPool.getConstant(result)
+                            instructions[i] = Move(target, constRef)
+                            constants[target.name] = result
                             changed = true
                         }
-                    } else if (left is Number) {
-                        instructions[i] = BinaryOp(
-                            inst.target,
-                            constantPool.getConstant(left.toDouble()),
-                            inst.right,
-                            inst.operator
-                        )
-                    } else if (right is Number) {
-                        instructions[i] = BinaryOp(
-                            inst.target,
-                            inst.left,
-                            constantPool.getConstant(right.toDouble()),
-                            inst.operator
-                        )
                     }
                 }
-                else -> {}
+                
+                is Instruction.WithAssignment -> {
+                    invalidateVariable(inst.target)
+                }
+                
+                else -> {
+                    // Instructions that don't write to variables don't affect constants
+                }
             }
         }
+        
         return changed
     }
+}
 
-    private fun MutableSet<Any>.containsRef(ref: Any): Boolean {
-        if (ref is Reference)
-            return ref.name in this
-        return ref in this
+private fun Number.castPrecedence(): Int {
+    return when (this) {
+        is Byte -> 1
+        is Short -> 2
+        is Int -> 3
+        is Long -> 4
+        is Float -> 5
+        is Double -> 6
+        else -> throw IllegalStateException("todo")
     }
 }
+
+private operator fun Number.plus(other: Number): Number {
+    val thisCastPrecedence = this.castPrecedence()
+    val otherCastPrecedence = other.castPrecedence()
+    if (thisCastPrecedence >= otherCastPrecedence) {
+        return when (this) {
+            is Byte -> (this + other.toByte()).toByte()
+            is Short -> (this + other.toShort()).toShort()
+            is Int -> this + other.toInt()
+            is Long -> this + other.toLong()
+            is Float -> this + other.toFloat()
+            is Double -> this + other.toDouble()
+            else -> throw IllegalStateException("todo")
+        }
+    } else {
+        return when (other) {
+            is Byte -> (this.toByte() + other).toByte()
+            is Short -> (this.toShort() + other).toShort()
+            is Int -> this.toInt() + other
+            is Long -> this.toLong() + other
+            is Float -> this.toFloat() + other
+            is Double -> this.toDouble() + other
+            else -> throw IllegalStateException("todo")
+        }
+    }
+}
+
+private operator fun Number.minus(other: Number): Number {
+    val thisCastPrecedence = this.castPrecedence()
+    val otherCastPrecedence = other.castPrecedence()
+    if (thisCastPrecedence >= otherCastPrecedence) {
+        return when (this) {
+            is Byte -> (this - other.toByte()).toByte()
+            is Short -> (this - other.toShort()).toShort()
+            is Int -> this - other.toInt()
+            is Long -> this - other.toLong()
+            is Float -> this - other.toFloat()
+            is Double -> this - other.toDouble()
+            else -> throw IllegalStateException("todo")
+        }
+    } else {
+        return when (other) {
+            is Byte -> (this.toByte() - other).toByte()
+            is Short -> (this.toShort() - other).toShort()
+            is Int -> this.toInt() - other
+            is Long -> this.toLong() - other
+            is Float -> this.toFloat() - other
+            is Double -> this.toDouble() - other
+            else -> throw IllegalStateException("todo")
+        }
+    }
+}
+
+private operator fun Number.times(other: Number): Number {
+    val thisCastPrecedence = this.castPrecedence()
+    val otherCastPrecedence = other.castPrecedence()
+    if (thisCastPrecedence >= otherCastPrecedence) {
+        return when (this) {
+            is Byte -> (this * other.toByte()).toByte()
+            is Short -> (this * other.toShort()).toShort()
+            is Int -> this * other.toInt()
+            is Long -> this * other.toLong()
+            is Float -> this * other.toFloat()
+            is Double -> this * other.toDouble()
+            else -> throw IllegalStateException("todo")
+        }
+    } else {
+        return when (other) {
+            is Byte -> (other * this.toByte()).toByte()
+            is Short -> (other * this.toShort()).toShort()
+            is Int -> other * this.toInt()
+            is Long -> other * this.toLong()
+            is Float -> other * this.toFloat()
+            is Double -> other * this.toDouble()
+            else -> throw IllegalStateException("todo")
+        }
+    }
+}
+
+private operator fun Number.div(other: Number): Number {
+    val thisCastPrecedence = this.castPrecedence()
+    val otherCastPrecedence = other.castPrecedence()
+    if (thisCastPrecedence >= otherCastPrecedence) {
+        return when (this) {
+            is Byte -> (this / other.toByte()).toByte()
+            is Short -> (this / other.toShort()).toShort()
+            is Int -> this / other.toInt()
+            is Long -> this / other.toLong()
+            is Float -> this / other.toFloat()
+            is Double -> this / other.toDouble()
+            else -> throw IllegalStateException("todo")
+        }
+    } else {
+        return when (other) {
+            is Byte -> (this.toByte() / other).toByte()
+            is Short -> (this.toShort() / other).toShort()
+            is Int -> this.toInt() / other
+            is Long -> this.toLong() / other
+            is Float -> this.toFloat() / other
+            is Double -> this.toDouble() / other
+            else -> throw IllegalStateException("todo")
+        }
+    }
+}
+
+private operator fun Number.rem(other: Number): Number {
+    val thisCastPrecedence = this.castPrecedence()
+    val otherCastPrecedence = other.castPrecedence()
+    if (thisCastPrecedence >= otherCastPrecedence) {
+        return when (this) {
+            is Byte -> (this % other.toByte()).toByte()
+            is Short -> (this % other.toShort()).toShort()
+            is Int -> this % other.toInt()
+            is Long -> this % other.toLong()
+            is Float -> this % other.toFloat()
+            is Double -> this % other.toDouble()
+            else -> throw IllegalStateException("todo")
+        }
+    } else {
+        return when (other) {
+            is Byte -> (this.toByte() % other).toByte()
+            is Short -> (this.toShort() % other).toShort()
+            is Int -> this.toInt() % other
+            is Long -> this.toLong() % other
+            is Float -> this.toFloat() % other
+            is Double -> this.toDouble() % other
+            else -> throw IllegalStateException("todo")
+        }
+    }
+}
+
+private infix fun Number.and(other: Number): Number {
+    val thisCastPrecedence = this.castPrecedence()
+    val otherCastPrecedence = other.castPrecedence()
+    return if (thisCastPrecedence >= otherCastPrecedence) {
+        when (this) {
+            is Byte, Short, Int -> this.toInt() and other.toInt()
+            is Long -> this and other.toLong()
+            else -> throw IllegalStateException("todo")
+        }
+    } else {
+        when (other) {
+            is Byte, Short, Int -> this.toInt() and other.toInt()
+            is Long -> this.toLong() and other
+            else -> throw IllegalStateException("todo")
+        }
+    }
+}
+
+private infix fun Number.or(other: Number): Number {
+    val thisCastPrecedence = this.castPrecedence()
+    val otherCastPrecedence = other.castPrecedence()
+    return if (thisCastPrecedence >= otherCastPrecedence) {
+        when (this) {
+            is Byte, Short, Int -> this.toInt() or other.toInt()
+            is Long -> this or other.toLong()
+            else -> throw IllegalStateException("todo")
+        }
+    } else {
+        when (other) {
+            is Byte, Short, Int -> this.toInt() or other.toInt()
+            is Long -> this.toLong() or other
+            else -> throw IllegalStateException("todo")
+        }
+    }
+}
+
+private infix fun Number.xor(other: Number): Number {
+    val thisCastPrecedence = this.castPrecedence()
+    val otherCastPrecedence = other.castPrecedence()
+
+    return if (thisCastPrecedence >= otherCastPrecedence) {
+        when (this) {
+            is Byte, Short, Int -> this.toInt() xor other.toInt()
+            is Long -> this xor other.toLong()
+            else -> throw IllegalStateException("todo")
+        }
+    } else {
+        when (other) {
+            is Byte, Short, Int -> this.toInt() xor other.toInt()
+            is Long -> this.toLong() xor other
+            else -> throw IllegalStateException("todo")
+        }
+    }
+}
+
+private infix fun Number.shl(other: Number): Number {
+    val thisCastPrecedence = this.castPrecedence()
+    val otherCastPrecedence = other.castPrecedence()
+    return if (thisCastPrecedence >= otherCastPrecedence) {
+        when (this) {
+            is Byte, Short, Int -> this.toInt() shl other.toInt()
+            is Long -> this shl other.toLong()
+            else -> throw IllegalStateException("todo")
+        }
+    } else {
+        when (other) {
+            is Byte, Short, Int -> this.toInt() shl other.toInt()
+            is Long -> this.toLong() shl other
+            else -> throw IllegalStateException("todo")
+        }
+    }
+}
+
+private infix fun Number.shr(other: Number): Number {
+    val thisCastPrecedence = this.castPrecedence()
+    val otherCastPrecedence = other.castPrecedence()
+    return if (thisCastPrecedence >= otherCastPrecedence) {
+        when (this) {
+            is Byte, Short, Int -> this.toInt() shr other.toInt()
+            is Long -> this shr other.toLong()
+            else -> throw IllegalStateException("todo")
+        }
+    } else {
+        when (other) {
+            is Byte, Short, Int -> this.toInt() shr other.toInt()
+            is Long -> this.toLong() shr other
+            else -> throw IllegalStateException("todo")
+        }
+    }
+}
+
+private infix fun Number.ushr(other: Number): Number {
+    val thisCastPrecedence = this.castPrecedence()
+    val otherCastPrecedence = other.castPrecedence()
+    return if (thisCastPrecedence >= otherCastPrecedence) {
+        when (this) {
+            is Byte, Short, Int -> this.toInt() ushr other.toInt()
+            is Long -> this ushr other.toLong()
+            else -> throw IllegalStateException("todo")
+        }
+    } else {
+        when (other) {
+            is Byte, Short, Int -> this.toInt() ushr other.toInt()
+            is Long -> this.toLong() ushr other
+            else -> throw IllegalStateException("todo")
+        }
+    }
+}
+

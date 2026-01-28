@@ -8,18 +8,32 @@ object CopyPropagation : OptimizationPass {
 
     override fun run(fileCtx: FileContext, instructions: MutableList<Instruction>): Boolean {
         var changed = false
-        val copyMap = mutableMapOf<String, Any>()
+        // Track copy mappings per variable name (non-SSA: variables can be reassigned)
+        val copyMap = mutableMapOf<String, RValue>()
 
+        // Helper to get variable name from LValue
+        fun getVarName(lvalue: LValue): String? {
+            return when (lvalue) {
+                is Reference.Named -> lvalue.name
+                else -> null
+            }
+        }
+
+        // Helper to invalidate a variable's copy mapping (when it's reassigned)
+        fun invalidateVariable(lvalue: LValue) {
+            getVarName(lvalue)?.let { copyMap.remove(it) }
+        }
+
+        // Helper to substitute a reference with its copy if available
         @Suppress("UNCHECKED_CAST")
         fun <T : RValue> substitute(ref: T): T {
-            if (ref !is Reference) return ref
-
-            val mapped = copyMap[ref.name] ?: return ref
-
-            return when (mapped) {
-                is RValue -> mapped as T
-                is BoundSource -> mapped.value as T 
-                else -> ref
+            if (ref !is Reference.Named) return ref
+            
+            val copy = copyMap[ref.name]
+            return if (copy != null) {
+                copy as T
+            } else {
+                ref
             }
         }
 
@@ -27,8 +41,13 @@ object CopyPropagation : OptimizationPass {
             when (val inst = instructions[i]) {
                 is GetStatic -> {
                     val newRef = substitute(inst.field)
-                    copyMap[inst.target.name] = newRef
-                    instructions[i] = inst.copy(field = newRef)
+                    if (newRef != inst.field) {
+                        instructions[i] = inst.copy(field = newRef)
+                        changed = true
+                    }
+                    // Track the result as a copy if it's a simple reference
+                    invalidateVariable(inst.target)
+                    getVarName(inst.target)?.let { copyMap[it] = newRef }
                 }
 
                 is GetMember -> {
@@ -38,56 +57,68 @@ object CopyPropagation : OptimizationPass {
                         instructions[i] = inst.copy(obj = newObj, member = newMember)
                         changed = true
                     }
-                    
-                    copyMap[inst.target.name] = BoundSource(instructions[i].let {  it as? RValue ?: Reference(inst.target) }, newObj)
-                    copyMap[inst.target.name] = BoundSource(Reference(inst.target), newObj)
+                    // GetMember produces a bound value, don't track as simple copy
+                    invalidateVariable(inst.target)
                 }
 
                 is GetMethod -> {
                     val newObj = substitute(inst.obj)
                     val newMethod = substitute(inst.method)
                     
-                    copyMap[inst.target.name] = BoundSource(newMethod, newObj)
-
                     if (newObj != inst.obj || newMethod != inst.method) {
                         instructions[i] = inst.copy(obj = newObj, method = newMethod)
                         changed = true
                     }
+                    // GetMethod produces a bound value, don't track as simple copy
+                    invalidateVariable(inst.target)
                 }
 
                 is GetField -> {
                     val newObj = substitute(inst.obj)
                     val newField = substitute(inst.field)
-                    
-                    copyMap[inst.target.name] = BoundSource(Reference(inst.target), newObj)
 
                     if (newObj != inst.obj || newField != inst.field) {
                         instructions[i] = inst.copy(obj = newObj, field = newField)
                         changed = true
                     }
+                    // GetField produces a value from object, don't track as simple copy
+                    invalidateVariable(inst.target)
                 }
 
                 is GetMethodStatic -> {
                     val newRef = substitute(inst.method)
-                    copyMap[inst.target.name] = newRef
-                    instructions[i] = inst.copy(method = newRef)
+                    if (newRef != inst.method) {
+                        instructions[i] = inst.copy(method = newRef)
+                        changed = true
+                    }
+                    // Track the result as a copy if it's a simple reference
+                    invalidateVariable(inst.target)
+                    getVarName(inst.target)?.let { copyMap[it] = newRef }
                 }
 
                 is Null -> {
-                    copyMap[inst.target.name] = NullRef
+                    invalidateVariable(inst.target)
+                    // Null is a constant, not a copy
                 }
 
                 is Move -> {
-                    val ref = inst.ref
-                    val newRef = substitute(ref)
+                    val newRef = substitute(inst.ref)
+                    val target = inst.target
                     
-                    val rawRef = if (ref is Reference) copyMap[ref.name] else null
-                    if (rawRef is BoundSource) {
-                        copyMap[inst.target.name] = rawRef 
+                    // If source is a simple reference (not a complex expression), track it as a copy
+                    if (newRef is Reference.Named && target is Reference.Named && newRef.name != target.name) {
+                        // Simple copy: target = source
+                        invalidateVariable(target)
+                        copyMap[target.name] = newRef
                     } else {
-                        copyMap[inst.target.name] = newRef
+                        // Not a simple copy, just invalidate
+                        invalidateVariable(target)
                     }
-                    instructions[i] = inst.copy(ref = newRef)
+                    
+                    if (newRef != inst.ref) {
+                        instructions[i] = inst.copy(ref = newRef)
+                        changed = true
+                    }
                 }
 
                 is Closure -> {
@@ -95,8 +126,9 @@ object CopyPropagation : OptimizationPass {
                     val newCaptures = inst.captured.map { substitute(it) }
                     if (newFunc != inst.func || newCaptures != inst.captured) {
                         instructions[i] = inst.copy(func = newFunc, captured = newCaptures)
+                        changed = true
                     }
-                    copyMap[inst.target.name] = instructions[i]
+                    invalidateVariable(inst.target)
                 }
 
                 is New -> {
@@ -105,7 +137,7 @@ object CopyPropagation : OptimizationPass {
                         instructions[i] = inst.copy(classRef = newClassRef)
                         changed = true
                     }
-                    copyMap[inst.target.name] = instructions[i]
+                    invalidateVariable(inst.target)
                 }
 
                 is NewArray -> {
@@ -115,7 +147,7 @@ object CopyPropagation : OptimizationPass {
                         instructions[i] = inst.copy(elementType = newElementType, sizeRef = newSizeRef)
                         changed = true
                     }
-                    copyMap[inst.target.name] = instructions[i]
+                    invalidateVariable(inst.target)
                 }
 
                 is BinaryOp -> {
@@ -125,7 +157,7 @@ object CopyPropagation : OptimizationPass {
                         instructions[i] = inst.copy(left = newLeft, right = newRight)
                         changed = true
                     }
-                    copyMap[inst.target.name] = instructions[i]
+                    invalidateVariable(inst.target)
                 }
 
                 is Neg -> {
@@ -134,7 +166,7 @@ object CopyPropagation : OptimizationPass {
                         instructions[i] = inst.copy(ref = newRef)
                         changed = true
                     }
-                    copyMap[inst.target.name] = instructions[i]
+                    invalidateVariable(inst.target)
                 }
 
                 is JumpIf -> {
@@ -168,58 +200,31 @@ object CopyPropagation : OptimizationPass {
                         instructions[i] = inst.copy(args = newArgs, method = newMethod)
                         changed = true
                     }
+                    invalidateVariable(inst.target)
                 }
+                
                 is CallMethod -> {
                     val newMethod = substitute(inst.method)
                     val newArgs = inst.args.map { substitute(it) }
+                    val newObj = substitute(inst.obj)
 
-                    
-                    val obj = inst.obj
-                    val rawObjEntry = if (obj is Reference) copyMap[obj.name] else null
-
-                    val optimizationOwner = if (rawObjEntry is BoundSource) rawObjEntry.owner else null
-
-                    val newObj = substitute(obj)
-
-                    if (optimizationOwner != null && newObj is MethodRef) {
-                        instructions[i] = CallMethod(inst.target, optimizationOwner, newMethod, newArgs)
-                        changed = true
-                    } else if (newObj == newMethod) {
-                        instructions[i] = Call(inst.target, newMethod, newArgs)
-                        changed = true
-                    } else if (newObj is MethodGroupRef) {
-                        instructions[i] = Call(inst.target, newMethod, newArgs)
-                        changed = true
-                    } else if (newObj != obj || newArgs != inst.args || newMethod != inst.method) {
+                    if (newObj != inst.obj || newArgs != inst.args || newMethod != inst.method) {
                         instructions[i] = inst.copy(obj = newObj, args = newArgs, method = newMethod)
                         changed = true
                     }
+                    invalidateVariable(inst.target)
                 }
 
                 is CallVirtual -> {
                     val newMethod = substitute(inst.method)
                     val newArgs = inst.args.map { substitute(it) }
+                    val newObj = substitute(inst.obj)
 
-                    val obj = inst.obj
-                    val rawObjEntry = if (obj is Reference) copyMap[obj.name] else null
-
-                    val optimizationOwner = if (rawObjEntry is BoundSource) rawObjEntry.owner else null
-
-                    val newObj = substitute(obj)
-
-                    if (optimizationOwner != null && newObj is MethodRef) {
-                        instructions[i] = CallVirtual(inst.target, optimizationOwner, newMethod, newArgs)
-                        changed = true
-                    } else if (newObj == newMethod) {
-                        instructions[i] = Call(inst.target, newMethod, newArgs)
-                        changed = true
-                    } else if (newObj is MethodGroupRef) {
-                        instructions[i] = Call(inst.target, newMethod, newArgs)
-                        changed = true
-                    } else if (newObj != obj || newArgs != inst.args || newMethod != inst.method) {
+                    if (newObj != inst.obj || newArgs != inst.args || newMethod != inst.method) {
                         instructions[i] = inst.copy(obj = newObj, args = newArgs, method = newMethod)
                         changed = true
                     }
+                    invalidateVariable(inst.target)
                 }
 
                 is InvokeConstructor -> {
@@ -227,16 +232,6 @@ object CopyPropagation : OptimizationPass {
                     val newArgs = inst.args.map { substitute(it) }
                     if (newObj != inst.obj || newArgs != inst.args) {
                         instructions[i] = inst.copy(obj = newObj, args = newArgs)
-                        changed = true
-                    }
-                    copyMap[inst.target.name] = instructions[i]
-                }
-
-
-                is PutStatic -> {
-                    val newVal = substitute(inst.value)
-                    if (newVal != inst.value) {
-                        instructions[i] = inst.copy(value = newVal)
                         changed = true
                     }
                 }
@@ -257,7 +252,7 @@ object CopyPropagation : OptimizationPass {
                         instructions[i] = inst.copy(array = newArr, index = newIdx)
                         changed = true
                     }
-                    copyMap[inst.target.name] = instructions[i]
+                    invalidateVariable(inst.target)
                 }
 
                 is ArrayStore -> {
@@ -276,7 +271,7 @@ object CopyPropagation : OptimizationPass {
                         instructions[i] = inst.copy(ref = newRef)
                         changed = true
                     }
-                    copyMap[inst.target.name] = instructions[i]
+                    invalidateVariable(inst.target)
                 }
 
                 is InstanceOf -> {
@@ -285,7 +280,7 @@ object CopyPropagation : OptimizationPass {
                         instructions[i] = inst.copy(ref = newRef)
                         changed = true
                     }
-                    copyMap[inst.target.name] = instructions[i]
+                    invalidateVariable(inst.target)
                 }
 
                 is TypeOf -> {
@@ -294,7 +289,11 @@ object CopyPropagation : OptimizationPass {
                         instructions[i] = inst.copy(ref = newRef)
                         changed = true
                     }
-                    copyMap[inst.target.name] = instructions[i]
+                    invalidateVariable(inst.target)
+                }
+
+                is Catch -> {
+                    invalidateVariable(inst.target)
                 }
 
                 is Phi -> {
@@ -305,7 +304,7 @@ object CopyPropagation : OptimizationPass {
                         instructions[i] = inst.copy(incoming = newIncoming)
                         changed = true
                     }
-                    copyMap[inst.target.name] = instructions[i]
+                    invalidateVariable(inst.target)
                 }
 
                 else -> {}
