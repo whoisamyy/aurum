@@ -1,12 +1,20 @@
 package lang.aurum.parsing.stages.memberresolution
 
+import lang.aurum.attribute.OperatorAttribute
+import lang.aurum.ir.BinaryOperator
+import lang.aurum.ir.CustomOperator
+import lang.aurum.ir.Operator
+import lang.aurum.ir.UnaryOperator
 import lang.aurum.model.Type
+import lang.aurum.model.Types
 import lang.aurum.model.impl.ParameterImpl
 import lang.aurum.parsing.antlr.AurumParser
+import lang.aurum.parsing.attribute.*
 import lang.aurum.parsing.model.MutableField
 import lang.aurum.parsing.model.MutableMethod
 import lang.aurum.parsing.model.MutableType
 import lang.aurum.parsing.stages.*
+import java.lang.reflect.AccessFlag
 
 class ClassMemberResolutionStage(parsingContext: ParsingContext) : ParsingStage(parsingContext) {
     override fun execute(file: FileContext) {
@@ -27,13 +35,40 @@ class ClassMemberResolutionStage(parsingContext: ParsingContext) : ParsingStage(
                     val superClasses = ctx.typeExprList()?.typeExpr()?.map(typeResolver::toUnresolvedType)
                     val superClass = superClasses
                         ?.find { it?.isInterface == false }
-                        ?: Type.ofClass(Object::class.java)
+                        ?: Types.OBJECT
 
                     val interfaces = superClasses?.filterNotNull()?.toMutableList()
                     interfaces?.remove(superClass)
 
                     type.superClass = superClass
                     type.interfaces = interfaces
+
+                    val constructorParams = ctx.defaultConstructorParamList()?.defaultConstructorParam()?.map {
+                        val name = it.Identifier().text
+                        val vType = typeResolver.toUnresolvedType(it.typeExpr())
+
+                        if (it.varDefKW() != null) {
+                            type.fields += MutableField(
+                                type,
+                                name,
+                                vType,
+                                accessFlags = it.modifier().toAccessFlags(),
+                                attributes = mutableListOf(PrimaryConstructorAttribute)
+                            )
+                        }
+
+                        ParameterImpl(name, vType, arrayOf(PrimaryConstructorAttribute))
+                    }
+
+                    constructorParams?.let {
+                        val constructor = MutableMethod(
+                            type,
+                            "<init>",
+                            parameters = it.toMutableList(),
+                            attributes = mutableListOf(PrimaryConstructorAttribute)
+                        )
+                        type.methods += constructor
+                    }
 
                     for (member in ctx.memberDecl()) {
                         type.resolveMember(member, typeResolver)
@@ -43,17 +78,63 @@ class ClassMemberResolutionStage(parsingContext: ParsingContext) : ParsingStage(
                     val typeParameters = genericResolver.resolveGenericParameters(ctx.genericTypeList())
 
                     type.typeParameters = typeParameters.toMutableList()
+                    val superClasses = ctx.typeExprList()?.typeExpr()?.map(typeResolver::toUnresolvedType)
+                    val superClass = superClasses
+                        ?.find { it?.isInterface == false }
+                        ?: Types.OBJECT
+
+                    val interfaces = superClasses?.filterNotNull()?.toMutableList()
+                    interfaces?.remove(superClass)
+
+                    type.superClass = superClass
+                    type.interfaces = interfaces
+
+                    for (member in ctx.funcSign()) {
+                        type.methods += type.resolveMember(member, typeResolver)
+                    }
                 }
                 is AurumParser.ExtensionDeclContext -> {
                     val typeParameters = genericResolver.resolveGenericParameters(ctx.genericTypeList())
 
                     type.typeParameters = typeParameters.toMutableList()
-                    type.superClass = typeResolver.toUnresolvedType(ctx.typeExpr())
+                    val superClass = typeResolver.toUnresolvedType(ctx.typeExpr())
+                    type.superClass = superClass
+
+                    if (type.attributes.contains<ExtensionAttributeImpl>()) {
+                        val extensionAttr = type.attributes.get<ExtensionAttributeImpl>()!!
+                        type.superClass = typeResolver.toUnresolvedType(extensionAttr.typeCtx)!!
+                        extensionAttr.type = type.superClass!!
+                    }
+
+                    type.primitive = superClass!!.isPrimitive
+
+
+                    for (extMember in ctx.extensionMember()) {
+                        when (val member = extMember.getChild(0)) {
+                            is AurumParser.FuncDeclContext -> type.methods += type.resolveMember(member, typeResolver)
+                            is AurumParser.OperatorDeclContext -> type.methods += type.resolveMember(member, typeResolver)
+                            is AurumParser.VarDeclContext -> type.resolveMember(member, typeResolver)
+                        }
+                    }
+
+                    val key = file.importMap.typeMap.filter { it.value == type.superClass }.keys.find { true }
+                    if (key != null)
+                    file.importMap[key] = type
+
+                    for (member in type.members()) {
+                        (member as? MutableMethod)?.let {
+                            it.accessFlags += AccessFlag.STATIC
+                            it.parameters.addFirst(ParameterImpl("this", type.superClass))
+
+                        }
+                        (member as? MutableField)?.let { it.accessFlags += AccessFlag.STATIC }
+                    }
                 }
                 is AurumParser.DecoratorDeclContext -> {}
                 is List<*> -> {
                     @Suppress("UNCHECKED_CAST")
                     ctx as List<AurumParser.DeclarationContext>
+                    type.attributes += FileClassAttribute
 
                     ctx.forEach {
                         when {
@@ -103,6 +184,11 @@ private fun MutableType.resolveMember(member: AurumParser.VarDeclContext, typeRe
 }
 private fun MutableType.resolveMember(member: AurumParser.SingleDeclContext, typeResolver: TypeResolver) {
     val accessFlags = member.modifier().toAccessFlags()
+    if (this.attributes.contains<FileClassAttribute>()) {
+        accessFlags += AccessFlag.STATIC
+        if (accessFlags.none { it in setOf(AccessFlag.PUBLIC, AccessFlag.PRIVATE, AccessFlag.PROTECTED) })
+            accessFlags += AccessFlag.PUBLIC
+    }
     val fieldName = member.Identifier().text
     val type: Type? = typeResolver.toUnresolvedType(member.typeExpr())
 
@@ -110,6 +196,11 @@ private fun MutableType.resolveMember(member: AurumParser.SingleDeclContext, typ
 }
 private fun MutableType.resolveMember(member: AurumParser.UnpackDeclContext, typeResolver: TypeResolver) {
     val accessFlags = member.modifier().toAccessFlags()
+    if (this.attributes.contains<FileClassAttribute>()) {
+        accessFlags += AccessFlag.STATIC
+        if (accessFlags.none { it in setOf(AccessFlag.PUBLIC, AccessFlag.PRIVATE, AccessFlag.PROTECTED) })
+            accessFlags += AccessFlag.PUBLIC
+    }
     val vars = member.varId().map { it.Identifier().text to typeResolver.toUnresolvedType(it.typeExpr()) }
 
     this.fields.addAll(
@@ -123,6 +214,11 @@ private fun MutableType.resolveMember(member: AurumParser.UnpackDeclContext, typ
 }
 private fun MutableType.resolveMember(member: AurumParser.MultiDeclContext, typeResolver: TypeResolver) {
     val accessFlags = member.modifier().toAccessFlags()
+    if (this.attributes.contains<FileClassAttribute>()) {
+        accessFlags += AccessFlag.STATIC
+        if (accessFlags.none { it in setOf(AccessFlag.PUBLIC, AccessFlag.PRIVATE, AccessFlag.PROTECTED) })
+            accessFlags += AccessFlag.PUBLIC
+    }
     val vars = member.varIdAssignment().map {
         val varId = it.varId()
         varId.Identifier().text to typeResolver.toUnresolvedType(varId.typeExpr())
@@ -147,6 +243,11 @@ private fun MutableType.resolveMember(member: AurumParser.FuncDeclContext, typeR
 private fun MutableType.resolveMember(member: AurumParser.ConstructorDeclContext, typeResolver: TypeResolver): MutableMethod {
     val name = "<init>"
     val accessFlags = member.modifier().toAccessFlags()
+    if (this.attributes.contains<FileClassAttribute>()) {
+        accessFlags += AccessFlag.STATIC
+        if (accessFlags.none { it in setOf(AccessFlag.PUBLIC, AccessFlag.PRIVATE, AccessFlag.PROTECTED) })
+            accessFlags += AccessFlag.PUBLIC
+    }
     val method = MutableMethod(
         this,
         name,
@@ -171,6 +272,11 @@ private fun MutableType.resolveMember(member: AurumParser.ConstructorDeclContext
 private fun MutableType.resolveMember(member: AurumParser.OperatorDeclContext, typeResolver: TypeResolver): MutableMethod {
     val name = member.OperatorSymbol().text
     val accessFlags = member.modifier().toAccessFlags()
+    if (this.attributes.contains<FileClassAttribute>()) {
+        accessFlags += AccessFlag.STATIC
+        if (accessFlags.none { it in setOf(AccessFlag.PUBLIC, AccessFlag.PRIVATE, AccessFlag.PROTECTED) })
+            accessFlags += AccessFlag.PUBLIC
+    }
     val method = MutableMethod(
         this,
         name,
@@ -189,7 +295,28 @@ private fun MutableType.resolveMember(member: AurumParser.OperatorDeclContext, t
     }
 
     method.returnType = newTypeResolver.toUnresolvedType(member.returnType()?.typeExpr())
-        ?: Type.ofClass(Void.TYPE)
+        ?: Types.VOID
+
+    val operator: Operator
+    if (method.isStatic) {
+        operator = when (method.parameters.size) {
+            1 -> UnaryOperator.entries.find { it.symbol == method.name }
+                ?: CustomOperator(method.name, 12 * 10, isBinary = false)
+            2 -> BinaryOperator.entries.find { it.symbol == method.name }
+                ?: CustomOperator(method.name, 12 * 10)
+            else -> throw IllegalStateException("todo")
+        }
+    } else {
+        operator = when (method.parameters.size) {
+            0 -> UnaryOperator.entries.find { it.symbol == method.name }
+                ?: CustomOperator(method.name, 12 * 10, isBinary = false)
+            1 -> BinaryOperator.entries.find { it.symbol == method.name }
+                ?: CustomOperator(method.name, 12 * 10)
+            else -> throw IllegalStateException("todo")
+        }
+    }
+
+    method.attributes += OperatorAttribute(operator)
 
     method.attributes += BlockAttribute(member.block())
 
@@ -198,6 +325,11 @@ private fun MutableType.resolveMember(member: AurumParser.OperatorDeclContext, t
 private fun MutableType.resolveMember(member: AurumParser.FuncSignContext, typeResolver: TypeResolver): MutableMethod {
     val name = member.Identifier().text
     val accessFlags = member.modifier().toAccessFlags()
+    if (this.attributes.contains<FileClassAttribute>()) {
+        accessFlags += AccessFlag.STATIC
+        if (accessFlags.none { it in setOf(AccessFlag.PUBLIC, AccessFlag.PRIVATE, AccessFlag.PROTECTED) })
+            accessFlags += AccessFlag.PUBLIC
+    }
     val method = MutableMethod(
         this,
         name,
@@ -216,7 +348,7 @@ private fun MutableType.resolveMember(member: AurumParser.FuncSignContext, typeR
     }
 
     method.returnType = newTypeResolver.toUnresolvedType(member.returnType()?.typeExpr())
-        ?: Type.ofClass(Void.TYPE)
+        ?: Types.VOID
 
     return method
 }
