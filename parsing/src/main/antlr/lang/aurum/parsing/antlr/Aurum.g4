@@ -5,11 +5,11 @@ package lang.aurum.parsing.antlr;
 }
 
 program
-    : packageDecl (importStmt | declaration)*?
+    : ENDLINE* packageDecl? (importStmt | declaration)*?
     ;
 
 importStmt
-    : 'import' qualifiedName ('as' Identifier)? ENDLINE+
+    : 'import' qualifiedName ('.' OperatorSymbol)? ('as' Identifier)? ENDLINE+
     ;
 
 packageDecl
@@ -250,7 +250,7 @@ primaryType
     ;
 
 lambdaType
-    : '(' typeList? ')' '->' typeExpr
+    : (('(' typeList? ')') | EmptyBraces) '->' typeExpr
     ;
 
 typeList
@@ -277,11 +277,11 @@ expressionBlock
     ;
 
 lambdaExpr
-    : '(' lambdaParamList? ')' '=>' expression      # lambda
-    | '(' lambdaParamList? ')' '=>' expressionBlock # lambda
-    | '(' lambdaParamList? ')' '=>' statement       # lambda
-    | '(' lambdaParamList? ')' '=>' block           # lambda
-    | postfixExpr (binaryOp postfixExpr)*           # binary
+    : (('(' lambdaParamList? ')') | EmptyBraces) '=>' expression      # lambda
+    | (('(' lambdaParamList? ')') | EmptyBraces) '=>' expressionBlock # lambda
+    | (('(' lambdaParamList? ')') | EmptyBraces) '=>' statement       # lambda
+    | (('(' lambdaParamList? ')') | EmptyBraces) '=>' block           # lambda
+    | postfixExpr (binaryOp postfixExpr)*                             # binary
     ;
 
 lambdaParamList
@@ -289,7 +289,7 @@ lambdaParamList
     ;
 
 lambdaParam
-    : Identifier (':' typeExpr)?
+    : (name=Identifier | name='_') (':' typeExpr)?
     ;
 
 postfixExpr
@@ -411,7 +411,7 @@ fragment Digit
     ;
 
 fragment Letter
-    : [a-zA-Z]
+    : [a-zA-Z_$]
     ;
 
 ENDLINE
