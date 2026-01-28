@@ -4,6 +4,7 @@ import lang.aurum.Argument;
 import lang.aurum.Command;
 import lang.aurum.Option;
 import lang.aurum.Parameters;
+import org.jetbrains.annotations.NotNull;
 
 import java.nio.file.Path;
 import java.util.Set;
@@ -11,17 +12,17 @@ import java.util.Set;
 @Command
 public final class SourcesArgument implements Argument {
     @Option(names = {"-wd", "--workdir"})
-    public Path workDir;
+    public Path workDir = Path.of("");
     @Parameters()
-    public Set<Source> sources;
+    public Set<Source> sources = Set.of();
     @Option(names = {"-r", "-rd"})
     public boolean recursiveDirectories;
 
-    public Path workDir() {
+    public @NotNull Path workDir() {
         return workDir;
     }
 
-    public Set<Source> sources() {
+    public @NotNull Set<@NotNull Source> sources() {
         return sources;
     }
 
