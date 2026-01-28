@@ -2,9 +2,7 @@
 
 package lang.aurum.ir
 
-import lang.aurum.model.Field
-import lang.aurum.model.Method
-import lang.aurum.model.Type
+import lang.aurum.model.*
 import java.io.DataOutputStream
 
 const val CONSTANT_POOL_ELEMENT_SIZE: Int = 2
@@ -13,15 +11,6 @@ const val OPCODE_SIZE: Int = 1 // in bytes
 private fun writeConstantPoolRef(ref: UShort, out: DataOutputStream) {
     out.writeShort(ref.toInt())
 }
-
-interface Sized : Writable {
-    fun size(): Int
-}
-
-interface Writable {
-    fun write(out: DataOutputStream)
-}
-interface CodeElement : Sized
 
 sealed interface TargetRef
 
@@ -39,52 +28,82 @@ object NullRef : RValue {
     }
 }
 
-open class Target (
-    val name: String
-) : LValue {
-    constructor(ref: Reference) : this(ref.name)
-    override fun size(): Int = name.length
-    override fun write(out: DataOutputStream) {
-        out.writeUTF(name)
-    }
+data class UsagesAttribute(
+    var usages: Int = 0
+) : Attribute {
+    override fun name(): String = "Usages"
 
-    override fun toString(): String {
-        return name
-    }
-
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (javaClass != other?.javaClass) return false
-
-        other as Target
-
-        return name == other.name
-    }
-
-    override fun hashCode(): Int {
-        return name.hashCode()
-    }
-
-    object Empty : Target("_")
+    override fun values(): Map<String, Any?> = mapOf(
+        "usages" to usages
+    )
 }
 
-data class Reference (
+sealed interface Reference : Attributable {
     val name: String
-) : RValue, LValue {
-    constructor(target: Target) : this(target.name)
+    val attributes: MutableList<Attribute>
 
-    override fun size(): Int = name.length
-    override fun write(out: DataOutputStream) {
-        out.writeUTF(name)
+    override fun attributes(): Array<out Attribute> {
+        return attributes.toTypedArray()
     }
 
-    override fun toString(): String {
-        return name
+    data class Named(
+        override val name: String,
+        override val attributes: MutableList<Attribute> = mutableListOf()
+    ) : Reference, LValue, RValue {
+        override fun size(): Int = name.length
+
+        override fun write(out: DataOutputStream) {
+            out.writeBytes(name)
+        }
+
+        override fun toString(): String {
+            return name
+        }
+    }
+
+    object Empty : Reference, LValue {
+        override val name = "_"
+        override val attributes = mutableListOf<Attribute>()
+        override fun size(): Int = 1 // one byte
+
+        override fun write(out: DataOutputStream) {
+            out.writeBytes("_")
+        }
+        override fun toString(): String {
+            return name
+        }
+    }
+
+    object This : Reference, RValue {
+        override val name = "this"
+        override val attributes = mutableListOf<Attribute>()
+        override fun size(): Int = 4
+
+        override fun write(out: DataOutputStream) {
+            out.writeBytes("this")
+        }
+        override fun toString(): String {
+            return name
+        }
+    }
+
+    object Super : Reference, RValue {
+        override val name = "super"
+        override val attributes = mutableListOf<Attribute>()
+        override fun size(): Int = 5
+
+        override fun write(out: DataOutputStream) {
+            out.writeBytes("super")
+        }
+        override fun toString(): String {
+            return name
+        }
     }
 }
 
 interface ConstantPoolRef : RValue {
     var ref: UShort
+    fun getRef(): Short = ref.toShort()
 }
 
 abstract class ConstRef<T>(override var ref: UShort) : ConstantPoolRef {
@@ -201,12 +220,12 @@ data class MemberGroupRef (
 
 data class Label (
     val name: String
-) : RValue {
+) : Sized {
 
     override fun size(): Int = name.length
 
     override fun write(out: DataOutputStream) {
-        out.writeUTF(name)
+        out.writeBytes(name)
     }
 
     override fun toString(): String {
@@ -214,11 +233,17 @@ data class Label (
     }
 }
 
-abstract class Instruction(open val opcode: Opcode, val code: Int = opcode.ordinal) : CodeElement
+abstract class Instruction(open val opcode: Opcode, val code: Int = opcode.ordinal) : CodeElement {
+    abstract class WithAssignment (
+        opcode: Opcode
+    ) : Instruction(opcode) {
+        abstract val target: LValue
+    }
+}
 
 data class Null (
-    val target: Target
-) : Instruction(Opcode.Null), TargetRef {
+    override val target: LValue
+) : Instruction.WithAssignment(Opcode.Null), TargetRef {
     override fun size(): Int = OPCODE_SIZE + target.size()
 
     override fun write(out: DataOutputStream) {
@@ -227,9 +252,9 @@ data class Null (
 }
 
 data class Move (
-    val target: Target,
+    override val target: LValue,
     val ref: RValue
-) : Instruction(Opcode.Move), TargetRef {
+) : Instruction.WithAssignment(Opcode.Move), TargetRef {
     override fun size(): Int = target.size() + ref.size()
 
     override fun write(out: DataOutputStream) {
@@ -240,11 +265,11 @@ data class Move (
 }
 
 data class BinaryOp (
-    val target: Target,
+    override val target: LValue,
     val left: RValue,
     val right: RValue,
     val operator: BinaryOperator
-) : Instruction(operator.defaultOpcode!!), TargetRef {
+) : Instruction.WithAssignment(operator.defaultOpcode!!), TargetRef {
     override fun size(): Int = target.size() + left.size() + right.size()
     override fun write(out: DataOutputStream) {
         out.writeByte(code)
@@ -255,9 +280,9 @@ data class BinaryOp (
 }
 
 data class Neg (
-    val target: Target,
+    override val target: LValue,
     val ref: RValue
-) : Instruction(Opcode.Neg), TargetRef {
+) : Instruction.WithAssignment(Opcode.Neg), TargetRef {
     override fun size(): Int = target.size() + ref.size()
     override fun write(out: DataOutputStream) {
         out.writeByte(code)
@@ -326,9 +351,11 @@ class TryEnd : Instruction(Opcode.TryEnd) {
 }
 
 data class Catch (
-    val exceptionVar: Target,
+    val exceptionVar: LValue,
     val labelEnd: Label
-) : Instruction(Opcode.Catch) {
+) : Instruction.WithAssignment(Opcode.Catch) {
+    override val target = exceptionVar
+
     override fun size(): Int = exceptionVar.size() + labelEnd.size()
     override fun write(out: DataOutputStream) {
         out.writeByte(code)
@@ -338,10 +365,10 @@ data class Catch (
 }
 
 data class Call (
-    val target: Target,
+    override val target: LValue,
     val method: MethodRef,
     val args: List<RValue>
-) : Instruction(Opcode.Call), TargetRef {
+) : Instruction.WithAssignment(Opcode.Call), TargetRef {
     override fun size(): Int = target.size() + method.size() + args.sumOf { it.size() }
     override fun write(out: DataOutputStream) {
         out.writeByte(code)
@@ -353,11 +380,11 @@ data class Call (
 }
 
 data class CallMethod (
-    val target: Target,
+    override val target: LValue,
     val obj: RValue,
     val method: MethodRef,
     val args: List<RValue>
-) : Instruction(Opcode.CallMethod), TargetRef {
+) : Instruction.WithAssignment(Opcode.CallMethod), TargetRef {
     override fun size(): Int = target.size() + obj.size() + method.size() + args.sumOf { it.size() }
     override fun write(out: DataOutputStream) {
         out.writeByte(code)
@@ -370,11 +397,11 @@ data class CallMethod (
 }
 
 data class CallVirtual (
-    val target: Target,
+    override val target: LValue,
     val obj: RValue,
     val method: MethodRef,
     val args: List<RValue>
-) : Instruction(Opcode.CallVirtual), TargetRef {
+) : Instruction.WithAssignment(Opcode.CallVirtual), TargetRef {
     override fun size(): Int = 2 + target.size() + obj.size() + method.size() + args.sumOf { it.size() }
     override fun write(out: DataOutputStream) {
         out.writeByte(code)
@@ -387,14 +414,12 @@ data class CallVirtual (
 }
 
 data class InvokeConstructor (
-    val target: Target,
     val obj: RValue,
     val args: List<RValue>
 ) : Instruction(Opcode.InvokeConstructor), TargetRef {
-    override fun size(): Int = target.size() + obj.size() + args.sumOf { it.size() }
+    override fun size(): Int = obj.size() + args.sumOf { it.size() }
     override fun write(out: DataOutputStream) {
         out.writeByte(code)
-        target.write(out)
         obj.write(out)
         out.writeShort(args.size)
         args.forEach { it.write(out) }
@@ -402,10 +427,10 @@ data class InvokeConstructor (
 }
 
 data class Closure (
-    val target: Target,
+    override val target: LValue,
     val func: MethodRef,
     val captured: List<RValue>
-) : Instruction(Opcode.Closure), TargetRef {
+) : Instruction.WithAssignment(Opcode.Closure), TargetRef {
     override fun size(): Int = target.size() + func.size() + captured.sumOf { it.size() }
     override fun write(out: DataOutputStream) {
         out.writeByte(code)
@@ -417,9 +442,9 @@ data class Closure (
 }
 
 data class New (
-    val target: Target,
+    override val target: LValue,
     val classRef: TypeRef
-) : Instruction(Opcode.New), TargetRef {
+) : Instruction.WithAssignment(Opcode.New), TargetRef {
     override fun size(): Int = target.size() + classRef.size()
     override fun write(out: DataOutputStream) {
         out.writeByte(code)
@@ -429,10 +454,10 @@ data class New (
 }
 
 data class NewArray (
-    val target: Target,
+    override val target: LValue,
     val elementType: TypeRef,
     val sizeRef: RValue
-) : Instruction(Opcode.NewArray), TargetRef {
+) : Instruction.WithAssignment(Opcode.NewArray), TargetRef {
     override fun size(): Int = target.size() + elementType.size() + sizeRef.size()
     override fun write(out: DataOutputStream) {
         out.writeByte(code)
@@ -443,10 +468,10 @@ data class NewArray (
 }
 
 data class GetField (
-    val target: Target,
+    override val target: LValue,
     val obj: RValue,
     val field: FieldRef
-) : Instruction(Opcode.GetField), TargetRef {
+) : Instruction.WithAssignment(Opcode.GetField), TargetRef {
     override fun size(): Int = target.size() + obj.size() + field.size()
     override fun write(out: DataOutputStream) {
         out.writeByte(code)
@@ -471,10 +496,10 @@ data class PutField (
 }
 
 data class GetMember (
-    val target: Target,
+    override val target: LValue,
     val obj: RValue,
     val member: MemberRef
-) : Instruction(Opcode.GetMember), TargetRef {
+) : Instruction.WithAssignment(Opcode.GetMember), TargetRef {
     override fun size(): Int = target.size() + obj.size() + member.size()
 
     override fun write(out: DataOutputStream) {
@@ -486,10 +511,10 @@ data class GetMember (
 }
 
 data class GetMethod (
-    val target: Target,
+    override val target: LValue,
     val obj: RValue,
     val method: MethodRef
-) : Instruction(Opcode.GetMethod), TargetRef {
+) : Instruction.WithAssignment(Opcode.GetMethod), TargetRef {
     override fun size(): Int = target.size() + method.size()
 
     override fun write(out: DataOutputStream) {
@@ -500,10 +525,11 @@ data class GetMethod (
     }
 }
 
+@Deprecated("""Use Closure instead""")
 data class GetMethodStatic (
-    val target: Target,
+    override val target: LValue,
     val method: MethodRef
-) : Instruction(Opcode.GetMethodStatic), TargetRef {
+) : Instruction.WithAssignment(Opcode.GetMethodStatic), TargetRef {
     override fun size(): Int = target.size() + method.size()
 
     override fun write(out: DataOutputStream) {
@@ -514,9 +540,9 @@ data class GetMethodStatic (
 }
 
 data class GetStatic (
-    val target: Target,
+    override val target: LValue,
     val field: FieldRef
-) : Instruction(Opcode.GetStatic), TargetRef {
+) : Instruction.WithAssignment(Opcode.GetStatic), TargetRef {
     override fun size(): Int = target.size() + field.size()
     override fun write(out: DataOutputStream) {
         out.writeByte(code)
@@ -525,24 +551,12 @@ data class GetStatic (
     }
 }
 
-data class PutStatic (
-    val field: FieldRef,
-    val value: RValue
-) : Instruction(Opcode.PutStatic) {
-    override fun size(): Int = field.size() + value.size()
-    override fun write(out: DataOutputStream) {
-        out.writeByte(code)
-        field.write(out)
-        value.write(out)
-    }
-}
-
 /// Get value from array
 data class ArrayLoad (
-    val target: Target,
+    override val target: LValue,
     val array: RValue,
     val index: RValue
-) : Instruction(Opcode.ArrayLoad), TargetRef {
+) : Instruction.WithAssignment(Opcode.ArrayLoad), TargetRef {
     override fun size(): Int = target.size() + array.size() + index.size()
     override fun write(out: DataOutputStream) {
         out.writeByte(code)
@@ -567,10 +581,10 @@ data class ArrayStore (
 }
 
 data class Cast (
-    val target: Target,
+    override val target: LValue,
     val ref: RValue,
     val type: TypeRef
-) : Instruction(Opcode.Cast), TargetRef {
+) : Instruction.WithAssignment(Opcode.Cast), TargetRef {
     override fun size(): Int = target.size() + ref.size() + type.size()
     override fun write(out: DataOutputStream) {
         out.writeByte(code)
@@ -581,10 +595,10 @@ data class Cast (
 }
 
 data class InstanceOf (
-    val target: Target,
+    override val target: LValue,
     val ref: RValue,
     val type: TypeRef
-) : Instruction(Opcode.InstanceOf), TargetRef {
+) : Instruction.WithAssignment(Opcode.InstanceOf), TargetRef {
     override fun size(): Int = target.size() + ref.size() + type.size()
     override fun write(out: DataOutputStream) {
         out.writeByte(code)
@@ -595,9 +609,9 @@ data class InstanceOf (
 }
 
 data class TypeOf (
-    val target: Target,
+    override val target: LValue,
     val ref: RValue
-) : Instruction(Opcode.TypeOf), TargetRef {
+) : Instruction.WithAssignment(Opcode.TypeOf), TargetRef {
     override fun size(): Int = target.size() + ref.size()
     override fun write(out: DataOutputStream) {
         out.writeByte(code)
@@ -640,9 +654,9 @@ data class Switch (
 }
 
 data class Phi (
-    val target: Target,
-    val incoming: Map<Label, Reference>
-) : Instruction(Opcode.Phi), TargetRef {
+    override val target: LValue,
+    val incoming: Map<Label, Reference.Named>
+) : Instruction.WithAssignment(Opcode.Phi), TargetRef {
     override fun size(): Int = target.size() + incoming.entries.sumOf { it.key.size() + it.value.size() }
     override fun write(out: DataOutputStream) {
         out.writeByte(code)
