@@ -31,7 +31,7 @@ tasks.withType<JavaCompile> {
 
         override fun asArguments() = listOf(
             "--patch-module",
-            "aurum.parsing=${kotlinClasses.get().asFile.absolutePath}"
+            "aurum.core=${kotlinClasses.get().asFile.absolutePath}"
         )
     })
 }
