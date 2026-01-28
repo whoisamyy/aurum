@@ -218,8 +218,8 @@ fun <K : Any, V : Any> mutableBiMapOf(
 }
 
 fun <K : Any, V : Any> biMapOf(
-    vararg pairs: Pair<K, V>
-): BiMap<K, V> = BiMapImpl(*pairs)
+    vararg elements: Pair<K, V>
+): BiMap<K, V> = BiMapImpl(*elements)
 
 
 class HashBiMap<K : Any, V : Any>(capacity: Int = 16) : AbstractBiMap<K, V>(HashMap(capacity), HashMap(capacity)) {
