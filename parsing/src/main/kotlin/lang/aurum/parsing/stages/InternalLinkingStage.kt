@@ -1,6 +1,8 @@
 package lang.aurum.parsing.stages
 
+import lang.aurum.attribute.ExtensionAttribute
 import lang.aurum.model.Type
+import lang.aurum.parsing.attribute.contains
 import lang.aurum.parsing.model.MutableField
 import lang.aurum.parsing.model.MutableMethod
 import lang.aurum.parsing.model.MutableType
@@ -8,6 +10,37 @@ import lang.aurum.parsing.model.MutableType
 class InternalLinkingStage(parsingContext: ParsingContext) : ParsingStage(parsingContext) {
     override fun execute(fileContext: FileContext) {
         process(LinkingContext(fileContext))
+
+        linkPackage(fileContext)
+    }
+
+    private fun linkPackage(fileContext: FileContext) {
+        val types = fileContext.classes.keys.map { type -> type.className() to type }
+
+        val staticMethods = fileContext.fileClass.methods
+            .filter { m -> !m.isPrivate && !m.isProtected }
+            .groupBy { m -> m.name() }
+            .map { (k, v) -> k to v.toMutableSet() }
+
+        val extensionMethods = fileContext.classes.keys.mapNotNull { type ->
+            if (!type.attributes().contains<ExtensionAttribute>())
+                null
+            else {
+                type.methods().groupBy { m -> m.name() }.map { (k, v) -> k to v.toMutableSet() }
+            }
+        }.flatMap { m -> m.toList() }
+
+        val staticFields = fileContext.fileClass.fields
+            .filter { m -> !m.isPrivate && !m.isProtected }
+            .groupBy { m -> m.name() }
+            .map { (k, v) -> k to v.toMutableSet() }
+
+        parsingContext.files.forEach { file ->
+            file.importMap.typeMap += types
+            file.importMap.methodMap += staticMethods
+            file.importMap.methodMap += extensionMethods
+            file.importMap.fieldMap += staticFields
+        }
     }
 
     private fun process(context: LinkingContext) {
