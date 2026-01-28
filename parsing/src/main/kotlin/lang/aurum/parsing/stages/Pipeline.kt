@@ -1,13 +1,15 @@
 package lang.aurum.parsing.stages
 
+import lang.aurum.Arguments
 import lang.aurum.parsing.AurumCompilationError
+import lang.aurum.parsing.ParserArgument
 import lang.aurum.parsing.stages.coderesolution.CodeResolutionStage
 import lang.aurum.parsing.stages.memberresolution.ClassMemberResolutionStage
 import lang.aurum.parsing.stages.memberresolution.EarlyLinkingStage
-import lang.aurum.parsing.stages.optimisation.OptimizationStage
+import lang.aurum.parsing.stages.optimisation.OptimisationStage
 import java.nio.file.Files
 
-data class Pipeline(
+data class Pipeline (
     val stages: List<(ParsingContext) -> ParsingStage> = listOf(
         ::DependenciesResolutionStage,
         ::ClassesResolutionStage,
@@ -17,8 +19,9 @@ data class Pipeline(
         ::ExternalLinkingStage,
         ::DesugaringStage,
         ::CodeResolutionStage,
-        ::OptimizationStage,
-        ::ConstantPoolCleaningStage
+        ::OptimisationStage,
+        ::ConstantPoolCleaningStage,
+        ::CodeCleaningStage,
     )
 ) {
     constructor(vararg stages: (ParsingContext) -> ParsingStage) : this(stages.toList())
@@ -30,16 +33,18 @@ data class Pipeline(
             val line = e.line
             val column = e.column
             val lineContent = fileContent[e.line!! - 1]
-            val repeatCount = e.column!! + 1 + line.toString().length + 1
+            val repeatCount = e.column!! + 1 + line.toString().length
             println("""
                 ERROR: ${e.filePath}:$line:$column
                 
                 $line $lineContent
-                ${"-".repeat(repeatCount)}${"^".repeat(lineContent.length - repeatCount + 3)}
+                |${"-".repeat(repeatCount-1)}${"^".repeat(Math.clamp((lineContent.length - repeatCount + 2).toLong(), 1, Int.MAX_VALUE))}
                 
                 ${e.filePath ?: ""}:$line:$column : ${e.message}
             """.trimIndent())
 
+            if (Arguments.contains<ParserArgument.PrintStackTrace>())
+                e.printStackTrace(System.err)
         } else
             e.printStackTrace(System.err)
     }
