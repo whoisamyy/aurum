@@ -3,6 +3,7 @@ package lang.aurum.parsing.stages.memberresolution
 import lang.aurum.model.TemplateType
 import lang.aurum.model.Type
 import lang.aurum.model.TypeParameter
+import lang.aurum.model.Types
 import lang.aurum.parsing.antlr.AurumParser
 import lang.aurum.parsing.stages.FileContext
 import lang.aurum.parsing.stages.coderesolution.positionString
@@ -51,7 +52,7 @@ class GenericResolver (
         }
     }
 
-    private fun createTypeParameter(name: String, bound: Type = Type.ofClass(Object::class.java), positionString: String): TypeParameter {
+    private fun createTypeParameter(name: String, bound: Type = Types.OBJECT, positionString: String): TypeParameter {
         val tp = TypeParameter.of(name, bound)
         if (typeParameters.put(name, TemplateType.of(name)) != null) {
             throwAurumError("Type parameter '$name' is already defined", positionString, fileContext)

@@ -2,6 +2,7 @@ package lang.aurum.parsing.stages.memberresolution
 
 import lang.aurum.model.TemplateType
 import lang.aurum.model.Type
+import lang.aurum.model.Types
 import lang.aurum.parsing.antlr.AurumParser
 import lang.aurum.parsing.model.*
 import lang.aurum.parsing.stages.FileContext
@@ -20,7 +21,7 @@ class TypeResolver(val fileContext: FileContext) {
     fun toUnresolvedType(ctx: AurumParser.GenericTypeContext): Type {
         return when (ctx) {
             is AurumParser.WildcardTypeContext -> {
-                Type.ofClass(Object::class.java)
+                Types.OBJECT
             }
             is AurumParser.RegularTypeContext -> {
                 // map of current class(method) type parameters so that i can create TemplateTypes to replace them // yea
@@ -38,7 +39,7 @@ class TypeResolver(val fileContext: FileContext) {
                 withTypeArguments.toMutable()
             }
             else -> {
-                Type.ofClass(Object::class.java)
+                Types.OBJECT
             }
         }
     }
@@ -92,7 +93,7 @@ class TypeResolver(val fileContext: FileContext) {
                 val fnType = fnType(returnType, argTypes)
                 return fnType
             }
-            else -> return Type.ofClass(Object::class.java).toMutable()
+            else -> return Types.OBJECT.toMutable()
         }
     }
 
