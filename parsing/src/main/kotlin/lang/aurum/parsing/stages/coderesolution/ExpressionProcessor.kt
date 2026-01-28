@@ -1,19 +1,22 @@
 package lang.aurum.parsing.stages.coderesolution
 
+import lang.aurum.attribute.ExtensionAttribute
+import lang.aurum.attribute.LambdaMethodAttribute
 import lang.aurum.attribute.OperatorAttribute
 import lang.aurum.ir.*
-import lang.aurum.ir.Target
 import lang.aurum.model.*
 import lang.aurum.model.impl.ParameterImpl
 import lang.aurum.parsing.antlr.AurumParser
+import lang.aurum.parsing.attribute.contains
+import lang.aurum.parsing.attribute.get
 import lang.aurum.parsing.aurumError
 import lang.aurum.parsing.model.MutableMethod
 import lang.aurum.parsing.model.MutableType
 import lang.aurum.parsing.model.getType
 import lang.aurum.parsing.throwAurumError
 import org.antlr.v4.runtime.ParserRuleContext
+import java.lang.reflect.AccessFlag
 import kotlin.jvm.optionals.getOrNull
-import kotlin.reflect.full.memberProperties
 
 class ExpressionProcessor (
     val compiler: IRCompiler,
@@ -52,7 +55,7 @@ class ExpressionProcessor (
         )
 
         return Value(
-            Type.ofClass(Object::class.java),
+            Types.OBJECT,
             NullRef
         )
     }
@@ -81,10 +84,10 @@ class ExpressionProcessor (
             val current = it.first
             val next = it.second
 
-            val condVar = Variable("cond@${current.name}", PrimitiveType.BOOLEAN)
+            val condVar = Variable("cond@${current.name}", Types.BOOLEAN)
             compiler.startScope(current)
 
-            generator.neg(condVar.toTarget(), block.first.invoke())
+            generator.neg(condVar.toLValue(), block.first.invoke())
 
             generator.jumpIf(condVar.toReference(), next.startLabel)
 
@@ -120,32 +123,31 @@ class ExpressionProcessor (
 
                 {
                     val pattern = it.pattern()
-                    val condVar1 = Variable("cond@${it.positionString}_0", PrimitiveType.BOOLEAN)
+                    val condVar1 = Variable("cond@${it.positionString}", Types.BOOLEAN)
                     val typePattern = pattern.typePattern()
                     if (typePattern != null) {
                         val type = compiler.toType(typePattern.typeExpr())
                         val typeRef = constantPool.getReference(type)
-                        generator.instanceOf(condVar1.toTarget(), matched.value, typeRef)
+                        generator.instanceOf(condVar1.toLValue(), matched.value, typeRef)
                         compiler.currentScope += Variable(typePattern.Identifier().text, type)
                     } else {
                         val value = processExpression(pattern.expression(0))
-                        generator.cmpEq(condVar1.toTarget(), matched.value, value.value)
+                        generator.cmpEq(condVar1.toLValue(), matched.value, value.value)
                     }
-                    val condVar2 = Variable("cond@${it.positionString}_1", PrimitiveType.BOOLEAN)
                     if (pattern.KWwhen() != null) {
                         val whenExpr = processExpression(pattern.expression().last())
-                        generator.and(condVar2.toTarget(), condVar1.toReference(), whenExpr.value)
+                        generator.and(condVar1.toLValue(), condVar1.toReference(), whenExpr.value)
                     } else {
-                        generator.move(condVar2.toTarget(), condVar1.toReference())
+                        generator.move(condVar1.toLValue(), condVar1.toReference())
                     }
 
-                    condVar2.toReference()
+                    condVar1.toReference()
                 } to { compiler.process(it.expressionBlock()) }
             },
             elseScope,
             elseBlock
         )
-        return Value(Type.ofClass(Object::class.java), NullRef)
+        return Value(Types.OBJECT, NullRef)
     }
 
     private fun getScopes(expr: List<AurumParser.MatchCaseStatementContext>): List<Scope> {
@@ -168,7 +170,7 @@ class ExpressionProcessor (
         compiler.endScope()
 
         return Value(
-            Type.ofClass(Object::class.java),
+            Types.OBJECT,
             NullRef
         )
     }
@@ -178,8 +180,8 @@ class ExpressionProcessor (
         compiler.startScope(scope)
 
         val condValue = processExpression(expr.expression())
-        val condVar = Variable("cond@while$${expr.positionString}", PrimitiveType.BOOLEAN)
-        generator.neg(condVar.toTarget(), condValue.value)
+        val condVar = Variable("cond@while$${expr.positionString}", Types.BOOLEAN)
+        generator.neg(condVar.toLValue(), condValue.value)
         generator.jumpIf(condVar.toReference(), scope.endLabel)
 
         compiler.process(expr.block())
@@ -188,7 +190,7 @@ class ExpressionProcessor (
         compiler.endScope()
 
         return Value(
-            Type.ofClass(Object::class.java),
+            Types.OBJECT,
             NullRef
         )
     }
@@ -207,7 +209,7 @@ class ExpressionProcessor (
         val lambdaParameters = expr.lambdaParamList()?.lambdaParam()?.map {
             Value(
                 compiler.toType(it.typeExpr()),
-                Reference(it.Identifier().text)
+                Reference.Named(it.name.text)
             )
         } ?: listOf()
 
@@ -215,7 +217,7 @@ class ExpressionProcessor (
             method.owner(),
             lambdaName,
             parameters = lambdaParameters.map { ParameterImpl((it.value as Reference).name, it.type) }.toMutableList(),
-            attributes = mutableListOf(CodeAttribute(mutableListOf()))
+            attributes = mutableListOf(CodeAttribute(mutableListOf()), LambdaMethodAttribute)
         )
 
         (method.owner() as MutableType).methods += lambdaDelegate
@@ -236,6 +238,11 @@ class ExpressionProcessor (
         }
 
         lambdaDelegate.parameters += captured
+
+        lambdaDelegate.attributes.get<CodeAttribute>()!!.code += lambdaCompiler.instructions
+
+        if (captured.isEmpty())
+            lambdaDelegate.accessFlags += AccessFlag.STATIC
 
         return Value(
             lambdaDelegate.getType(),
@@ -269,7 +276,7 @@ class ExpressionProcessor (
                 var foundAssoc = Associativity.LEFT_TO_RIGHT
 
                 // А. Пытаемся найти примитивный оператор
-                if (left.type is PrimitiveType && right.type is PrimitiveType) {
+                if (left.type.isPrimitive && right.type.isPrimitive) {
                     val binOp = BinaryOperator.entries.find { it.symbol == symbol }
                     if (binOp != null) {
                         foundOp = binOp
@@ -280,24 +287,7 @@ class ExpressionProcessor (
 
                 // Б. Если примитивный не найден, ищем перегруженный оператор (метод)
                 if (foundOp == null) {
-                    val methods = compiler.availableMethods.filter { method ->
-                        val attr = method.attributes().find { it is OperatorAttribute } as? OperatorAttribute
-                        if (attr != null && attr.isBinary && attr.symbol == symbol) {
-                            if (method.isStatic) {
-                                // Статический метод: оба операнда передаются как аргументы
-                                method.parameters().size == 2 &&
-                                        left.type.isSubclassOf(method.parameters()[0].type()) &&
-                                        right.type.isSubclassOf(method.parameters()[1].type())
-                            } else {
-                                // Виртуальный метод: левый операнд - this, правый - аргумент
-                                method.parameters().size == 1 &&
-                                        left.type.isSubclassOf(method.owner()) &&
-                                        right.type.isSubclassOf(method.parameters()[0].type())
-                            }
-                        } else {
-                            false
-                        }
-                    }
+                    val methods = getOperatorMethods(symbol, left.type, right.type)
 
                     // Берем первый подходящий (в будущем здесь может быть более сложная логика разрешения перегрузок)
                     val method = methods.firstOrNull()
@@ -342,11 +332,11 @@ class ExpressionProcessor (
             if (op is BinaryOperator) {
                 if (op == BinaryOperator.IS) {
                     // Оператор IS возвращает Boolean и требует TypeRef справа
-                    variable.type = Type.ofClass(Boolean::class.java)
+                    variable.type = Types.BOOLEAN
                     if (right.value !is TypeRef) {
                         throw IllegalStateException("Operator 'is' expects a Type reference on the right side")
                     }
-                    generator.instanceOf(variable.toTarget(), left.value, right.value)
+                    generator.instanceOf(variable.toLValue(), left.value, right.value)
                 } else {
                     // Определяем тип результата (Boolean для сравнений, иначе тип левого операнда)
                     val isBool = op in setOf(
@@ -354,20 +344,20 @@ class ExpressionProcessor (
                         BinaryOperator.LT, BinaryOperator.LE,
                         BinaryOperator.GT, BinaryOperator.GE
                     )
-                    variable.type = if (isBool) Type.ofClass(Boolean::class.java) else left.type
-                    generator.binaryOp(variable.toTarget(), left.value, right.value, op)
+                    variable.type = if (isBool) Types.BOOLEAN else left.type
+                    generator.binaryOp(variable.toLValue(), left.value, right.value, op)
                 }
             } else if (op is Method) {
                 variable.type = op.returnType()
                 if (op.isStatic) {
                     generator.call(
-                        variable.toTarget(),
+                        variable.toLValue(),
                         constantPool.getReference(op),
                         listOf(left.value, right.value)
                     )
                 } else {
                     generator.callVirtual(
-                        variable.toTarget(),
+                        variable.toLValue(),
                         left.value,
                         constantPool.getReference(op),
                         listOf(right.value)
@@ -383,6 +373,30 @@ class ExpressionProcessor (
         }
 
         return values.first()
+    }
+
+    fun getOperatorMethods(
+        symbol: String?,
+        leftType: Type,
+        rightType: Type
+    ): List<Method> = compiler.availableMethods.filter { method ->
+        val attr = method.attributes().find { it is OperatorAttribute } as? OperatorAttribute
+        Unit
+        if (attr != null && attr.isBinary && attr.symbol == symbol) {
+            if (method.isStatic) {
+                // Статический метод: оба операнда передаются как аргументы
+                method.parameters().size == 2 &&
+                        leftType.isSubclassOf(method.parameters()[0].type()) &&
+                        rightType.isSubclassOf(method.parameters()[1].type())
+            } else {
+                // Виртуальный метод: левый операнд - this, правый - аргумент
+                method.parameters().size == 1 &&
+                        leftType.isSubclassOf(method.owner()) &&
+                        rightType.isSubclassOf(method.parameters()[0].type())
+            }
+        } else {
+            false
+        }
     }
 
     fun processPostfixExpr(expr: AurumParser.PostfixExprContext): Value {
@@ -432,9 +446,20 @@ class ExpressionProcessor (
         val owner = value.type
         val variable = Variable("tmp@member$$positionString")
 
-        val members = owner.members().filter { it.name() == memberName }
+        val members = owner.members().filter { it.name() == memberName }.toMutableList()
+
+        if (members.isEmpty()) {
+            members += compiler.availableMethods.filter {
+                it.owner().attributes().get<ExtensionAttribute>()?.type == owner && it.name() == memberName
+            }
+        }
+
         if (members.isEmpty())
-            throwAurumError("Member '$memberName' not found in type ${owner.toUsageString()}", positionString, compiler.fileContext)
+            throwAurumError(
+                "Member '$memberName' not found in type ${owner.toUsageString()}",
+                positionString,
+                compiler.fileContext
+            )
 
         val type = UnionType.ofTypeModels(
             members
@@ -457,7 +482,7 @@ class ExpressionProcessor (
                         members
                             .map { constantPool.getReference(it) as SingleMethodRef }
                     )
-                    generator.getMethod(variable.toTarget(), value.value, ref)
+                    generator.getMethod(variable.toLValue(), value.value, ref)
                 }
 
                 members.all { it is Field } -> {
@@ -465,7 +490,7 @@ class ExpressionProcessor (
                         members
                             .map { constantPool.getReference(it) as FieldRef }
                     )
-                    generator.getMember(variable.toTarget(), value.value, ref)
+                    generator.getMember(variable.toLValue(), value.value, ref)
                 }
 
                 else -> {
@@ -473,34 +498,35 @@ class ExpressionProcessor (
                         members
                             .map { constantPool.getReference(it) as MemberRef }
                     )
-                    generator.getMember(variable.toTarget(), value.value, ref)
+                    generator.getMember(variable.toLValue(), value.value, ref)
                 }
             }
         } else if (members.size == 1) {
+            variable.type = type.types()[0]
             when (val member = members[0]) {
                 is Field -> {
-                    if (member.isStatic)
+                    if (member.isStatic && !member.owner().attributes().contains<ExtensionAttribute>())
                         generator.getStatic(
-                            variable.toTarget(),
+                            variable.toLValue(),
                             constantPool.getReference(member)
                         )
                     else
                         generator.getField(
-                            variable.toTarget(),
+                            variable.toLValue(),
                             value.value,
                             constantPool.getReference(member)
                         )
                 }
 
                 is Method -> {
-                    if (member.isStatic)
-                        generator.getMethodStatic(
-                            variable.toTarget(),
+                    if (member.isStatic && !member.owner().attributes().contains<ExtensionAttribute>())
+                        generator.closure(
+                            variable.toLValue(),
                             constantPool.getReference(member)
                         )
                     else
                         generator.getMethod(
-                            variable.toTarget(),
+                            variable.toLValue(),
                             value.value,
                             constantPool.getReference(member)
                         )
@@ -523,7 +549,7 @@ class ExpressionProcessor (
             throwAurumError("Invalid cast: type ${initialType.className()} is not a subtype or supertype of ${newType.className()}", postfix, compiler.fileContext)
 
         variable.type = newType
-        generator.cast(variable.toTarget(), value.value, constantPool.getReference(newType))
+        generator.cast(variable.toLValue(), value.value, constantPool.getReference(newType))
 
         return variable.toValue()
     }
@@ -573,8 +599,8 @@ class ExpressionProcessor (
     ) {
         val type = constantPool.dereference<Type>(fn.ref)
 
-        generator.new(variable.toTarget(), fn)
-        generator.invokeConstructor(Target.Empty, variable.toReference(), args.map(Value::value))
+        generator.new(variable.toLValue(), fn)
+        generator.invokeConstructor(variable.toReference(), args.map(Value::value))
 
         variable.type = type
     }
@@ -586,7 +612,7 @@ class ExpressionProcessor (
         fn: Reference,
         argTypes: List<Type>,
         args: List<Value>,
-        ctx: ParserRuleContext
+        ctx: AurumParser.FunctionCallContext
     ) {
         val method: Method =
             when (val value = compiler.dataTracker[fn]) {
@@ -604,10 +630,7 @@ class ExpressionProcessor (
                 is MemberGroupRef -> getFittingMethodFrom(value, argTypes)
 
                 is GetMember -> {
-                    val memberRef = GetMember::class.memberProperties
-                        .find { it.name == "member" }!!.get(value) as MemberRef
-
-                    when (memberRef) {
+                    when (val memberRef = value.member) {
                         is SingleMethodRef -> {
                             constantPool.dereference(memberRef.ref)
                         }
@@ -632,10 +655,7 @@ class ExpressionProcessor (
                 }
 
                 is GetMethod -> {
-                    val methodRef = GetMethod::class.memberProperties
-                        .find { it.name == "method" }!!.get(value) as MethodRef
-
-                    when (methodRef) {
+                    val method = when (val methodRef = value.method) {
                         is SingleMethodRef -> {
                             constantPool.dereference(methodRef.ref)
                         }
@@ -644,13 +664,24 @@ class ExpressionProcessor (
                             getFittingMethodFrom(methodRef, argTypes)
                         }
                     }
+
+                    if (method.owner().attributes().contains<ExtensionAttribute>()) {
+                        generator.call(
+                            variable.toLValue(),
+                            constantPool.getReference(method),
+                            listOf(value.obj) + args.map(Value::value)
+                        )
+
+                        variable.type = method.returnType()
+
+                        return
+                    }
+
+                    method
                 }
 
                 is GetMethodStatic -> {
-                    val methodRef = GetMethodStatic::class.memberProperties
-                        .find { it.name == "method" }!!.getter.call(value) as MethodRef
-
-                    when (methodRef) {
+                    val method = when (val methodRef = value.method) {
                         is MethodGroupRef -> {
                             getFittingMethodFrom(methodRef, argTypes)
                         }
@@ -659,10 +690,11 @@ class ExpressionProcessor (
                             constantPool.dereference(methodRef.ref)
                         }
                     }
+
+                    method
                 }
 
-
-                else -> obj.type.findMethod("invoke", argTypes.toTypedArray()).orElseThrow()
+                else -> obj.type.withDefaultTypeArguments().findMethod("invoke", argTypes.toTypedArray()).orElseThrow()
             }
 
 //        method = obj.type.findMethod("invoke", argTypes.toTypedArray()).getOrNull()
@@ -674,7 +706,9 @@ class ExpressionProcessor (
 
         variable.type = method.returnType()
 
-        generator.callMethod(variable.toTarget(), obj.value, methodRef, args.map(Value::value))
+        if (!method.isStatic)
+            generator.callVirtual(variable.toLValue(), obj.value, methodRef, args.map(Value::value))
+        else generator.call(variable.toLValue(), methodRef, args.map(Value::value))
     }
 
     @OptIn(ExperimentalUnsignedTypes::class)
@@ -751,7 +785,7 @@ class ExpressionProcessor (
         val callableMembers = members.filter {
             it.parameters().filterIndexed { i, parameter ->
                 argTypes[i].isSubclassOf(parameter.type())
-            }.size == it.parameters().size
+            }.size == it.parameters().size && it.parameters().size == args.size
         }
 
         if (callableMembers.isEmpty()) {
@@ -767,7 +801,7 @@ class ExpressionProcessor (
         }
 
         generator.callMethod(
-            variable.toTarget(),
+            variable.toLValue(),
             value,
             ref,
             args.map(Value::value)
@@ -787,17 +821,17 @@ class ExpressionProcessor (
                 argTypes[i].isSubclassOf(parameter.type())
             }.size != method.parameters().size) {
             throwAurumError(
-                "Method parameter types do not match: expected ${method.parameters().map { it.type().className() }}, got ${argTypes.map { it.className() }}",
+                "Method parameter types do not match: expected ${method.parameters().map { it.type().toUsageString() }}, got ${argTypes.map { it.toUsageString() }}",
                 ctx,
                 compiler.fileContext
             )
         }
 
         if (method.isStatic) {
-            generator.call(variable.toTarget(), fn, args.map(Value::value))
+            generator.call(variable.toLValue(), fn, args.map(Value::value))
         } else {
             generator.callMethod(
-                variable.toTarget(),
+                variable.toLValue(),
                 obj,
                 fn,
                 args.map(Value::value)
@@ -824,7 +858,7 @@ class ExpressionProcessor (
             )
 
         generator.callVirtual(
-            variable.toTarget(),
+            variable.toLValue(),
             fn,
             constantPool.getReference(method),
             args.map(Value::value)
@@ -874,7 +908,7 @@ class ExpressionProcessor (
         }
 
         generator.callMethod(
-            variable.toTarget(),
+            variable.toLValue(),
             obj,
             constantPool.getReference(ref!!),
             args.map(Value::value)
@@ -891,9 +925,8 @@ class ExpressionProcessor (
             var tmpValue = value
             postfix.indexAccessPart().argList().expression().forEachIndexed { i, expr ->
                 val index = processExpression(expr)
-                val tmpName = "tmp@index@$i$${expr.positionString}"
-                generator.arrayLoad(Target(tmpName), tmpValue.value, index.value)
-                tmpValue = Value((tmpValue.type as ArrayType<*>).componentType(), Reference(tmpName))
+                generator.arrayLoad(variable.toLValue(), tmpValue.value, index.value)
+                tmpValue = Value((tmpValue.type as ArrayType<*>).componentType(), variable.toReference())
             }
 
             variable.type = tmpValue.type
@@ -904,7 +937,7 @@ class ExpressionProcessor (
                 .orElseThrow { aurumError("Type ${type.className()} does not have a 'get' method matching index types ${indices.map { it.type.className() }}", postfix, compiler.fileContext) }
 
             generator.callVirtual(
-                variable.toTarget(),
+                variable.toLValue(),
                 value.value,
                 constantPool.getReference(method),
                 indices.map(Value::value)
@@ -925,8 +958,8 @@ class ExpressionProcessor (
             }!!
 
             when (operator) {
-                UnaryOperator.POST_INC -> generator.add(variable.toTarget(), value.value, constantPool.getConstant(1))
-                UnaryOperator.POST_DEC -> generator.sub(variable.toTarget(), value.value, constantPool.getConstant(1))
+                UnaryOperator.POST_INC -> generator.add(variable.toLValue(), value.value, constantPool.getConstant(1))
+                UnaryOperator.POST_DEC -> generator.sub(variable.toLValue(), value.value, constantPool.getConstant(1))
                 else -> {}
             }
             variable.type = type
@@ -948,13 +981,13 @@ class ExpressionProcessor (
         val first = operatorMethods.first()
         if (first.isStatic) {
             generator.call(
-                variable.toTarget(),
+                variable.toLValue(),
                 constantPool.getReference(first),
                 listOf(value.value)
             )
         } else {
             generator.callVirtual(
-                variable.toTarget(),
+                variable.toLValue(),
                 value.value,
                 constantPool.getReference(first)
             )
@@ -979,11 +1012,11 @@ class ExpressionProcessor (
             }!!
 
             when (operator) {
-                UnaryOperator.INC -> generator.add(variable.toTarget(), primary.value, constantPool.getConstant(1))
-                UnaryOperator.DEC -> generator.sub(variable.toTarget(), primary.value, constantPool.getConstant(1))
+                UnaryOperator.INC -> generator.add(variable.toLValue(), primary.value, constantPool.getConstant(1))
+                UnaryOperator.DEC -> generator.sub(variable.toLValue(), primary.value, constantPool.getConstant(1))
                 UnaryOperator.MINUS,
                 UnaryOperator.NEG,
-                UnaryOperator.COMPL-> generator.neg(variable.toTarget(), primary.value)
+                UnaryOperator.COMPL-> generator.neg(variable.toLValue(), primary.value)
                 else -> {}
             }
             variable.type = type
@@ -1005,13 +1038,13 @@ class ExpressionProcessor (
         val first = operatorMethods.first()
         if (first.isStatic) {
             generator.call(
-                variable.toTarget(),
+                variable.toLValue(),
                 constantPool.getReference(first),
                 listOf(primary.value)
             )
         } else {
             generator.callVirtual(
-                variable.toTarget(),
+                variable.toLValue(),
                 primary.value,
                 constantPool.getReference(first)
             )
@@ -1042,17 +1075,10 @@ class ExpressionProcessor (
     fun processStringIdentifier(identifier: String, positionString: String): Value {
         val imported = compiler.fileContext.importMap.get<Any>(identifier)
         return when {
-            identifier == "this" -> {
-                Value(
-                    method.owner(),
-                    Reference("this")
-                )
-            }
-
             identifier in method.parameters().map(Parameter::name) -> {
                 Value(
                     method.parameters().find { it.name() == identifier }!!.type(),
-                    Reference(identifier)
+                    Reference.Named(identifier)
                 )
             }
 
@@ -1061,10 +1087,18 @@ class ExpressionProcessor (
                 variable.toReferenceValue()
             }
 
+            identifier == "this" -> {
+                Value(
+                    method.owner(),
+                    Reference.This
+                )
+            }
+
             imported != null -> {
                 when (imported) {
                     is MutableSet<*> -> {
-                        (imported as? MutableSet<Method>)?.let {
+                        (imported.first() as? Method)?.let {
+                            imported as Set<Method>
                             if (imported.size == 1)
                                 Value(
                                     imported.first().getType(),
@@ -1075,7 +1109,8 @@ class ExpressionProcessor (
                                     UnionType.ofTypeModels(imported.map(Method::getType).toTypedArray()),
                                     constantPool.getReference(imported)
                                 )
-                        } ?: (imported as? MutableSet<Field>)?.let {
+                        } ?: (imported.first() as? Field)?.let {
+                            imported as Set<Field>
                             if (imported.size == 1)
                                 Value(
                                     imported.first().type(),
@@ -1093,6 +1128,18 @@ class ExpressionProcessor (
                         imported,
                         constantPool.getReference(imported)
                     )
+
+                    is String -> {
+                        val names = imported.split(".")
+                        val initial = processStringIdentifier(names[0], positionString)
+                        var value = initial
+
+                        for (name in names.drop(1)) {
+                            value = processMemberAccess(value, name, positionString)
+                        }
+
+                        value
+                    }
 
                     else -> throw IllegalStateException()
                 }
@@ -1169,45 +1216,45 @@ class ExpressionProcessor (
                 )
             }
 
-            else -> throw IllegalStateException()
+            else -> throwAurumError("$identifier not found", positionString, compiler.fileContext)
         }
     }
 
     fun processLiteral(expr: AurumParser.LiteralContext): Value {
         return when {
-            expr.text == "null" -> Value(Type.ofClass(Object::class.java), NullRef)
+            expr.text == "null" -> Value(Types.OBJECT, NullRef)
             expr.text == "true" -> Value(
-                Type.ofClass(Boolean::class.java),
+                Types.BOOLEAN,
                 constantPool.getConstant(true)
             )
             expr.text == "false" -> Value(
-                Type.ofClass(Boolean::class.java),
+                Types.BOOLEAN,
                 constantPool.getConstant(false)
             )
             expr.text.startsWith('"') && expr.text.endsWith('"') ->
                 Value(
-                    Type.ofClass(String::class.java),
+                    Types.STRING,
                     constantPool.getConstant(expr.text.drop(1).dropLast(1))
                 )
             expr.text.startsWith('\'') && expr.text.endsWith('\'') ->
                 Value(
-                    Type.ofClass(String::class.java),
+                    Types.STRING,
                     constantPool.getConstant(expr.text.drop(1).dropLast(1))
                 )
-            expr.text.endsWith("d", true) || '.' in expr.text -> Value(
-                Type.ofClass(Double::class.java),
-                constantPool.getConstant(expr.text.dropLast(1).toDouble())
-            )
             expr.text.endsWith("f", true) -> Value(
-                Type.ofClass(Float::class.java),
+                Types.FLOAT,
                 constantPool.getConstant(expr.text.dropLast(1).toFloat())
             )
+            expr.text.endsWith("d", true) || '.' in expr.text -> Value(
+                Types.DOUBLE,
+                constantPool.getConstant(expr.text.dropLast(1).toDouble())
+            )
             expr.text.endsWith("l", true) -> Value(
-                Type.ofClass(Long::class.java),
+                Types.LONG,
                 constantPool.getConstant(expr.text.dropLast(1).toLong())
             )
             else -> Value(
-                Type.ofClass(Int::class.java),
+                Types.INT,
                 constantPool.getConstant(expr.text.toInt())
             )
         }
@@ -1216,17 +1263,17 @@ class ExpressionProcessor (
     fun processArray(expr: AurumParser.ArrayContext): Value {
         val variable = Variable("tmp@array$${expr.positionString}")
 
+        generator.newArray(
+            variable.toLValue(),
+            constantPool.getReference(variable.type),
+            constantPool.getConstant(expr.expression().size)
+        )
+
         val values = expr.expression().map(::processExpression)
         val type = UnionType.ofTypeModels(
             values.map(Value::type).toTypedArray()
         ).superClass()
-        variable.type = type
-
-        generator.newArray(
-            variable.toTarget(),
-            constantPool.getReference(variable.type),
-            constantPool.getConstant(values.size)
-        )
+        variable.type = type.asArray(1)
 
         for ((i, value) in values.withIndex()) {
             compiler.setVariableIndexed(variable, constantPool.getConstant(i), value)

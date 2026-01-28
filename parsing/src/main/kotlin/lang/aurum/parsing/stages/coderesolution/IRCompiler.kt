@@ -1,14 +1,10 @@
 package lang.aurum.parsing.stages.coderesolution
 
-import lang.aurum.ir.Instruction
-import lang.aurum.ir.LValue
-import lang.aurum.ir.NullRef
-import lang.aurum.ir.RValue
-import lang.aurum.model.IntersectionType
-import lang.aurum.model.Method
-import lang.aurum.model.Type
-import lang.aurum.model.UnionType
+import lang.aurum.attribute.ExtensionAttribute
+import lang.aurum.ir.*
+import lang.aurum.model.*
 import lang.aurum.parsing.antlr.AurumParser
+import lang.aurum.parsing.attribute.get
 import lang.aurum.parsing.model.fnType
 import lang.aurum.parsing.stages.FileContext
 import lang.aurum.parsing.throwAurumError
@@ -52,14 +48,24 @@ class IRCompiler(
         if (qualifiedName.Identifier().size == 1)
             return NullRef to if (value.value is LValue) value.value else throwAurumError("Expected lvalue but got rvalue: ${value.value}", qualifiedName, fileContext)
         for (i in qualifiedName.Identifier().dropLast(1)) {
-            value = expressionProcessor.processMemberAccess(
-                value,
-                i.text,
-                i.positionString
-            )
+            value = if (i.text == "this")
+                Value(
+                    method.owner(),
+                    Reference.This
+                )
+            else
+                expressionProcessor.processMemberAccess(
+                    value,
+                    i.text,
+                    i.positionString
+                )
         }
         val rval = value.value
         val lastIdentifier = qualifiedName.Identifier().last()
+        val field = value.type.findField(lastIdentifier.text)
+        if (field.isPresent) {
+            return rval to constantPool.getReference(field.get())
+        }
         val lval = expressionProcessor.processMemberAccess(
             value,
             lastIdentifier.text,
@@ -71,7 +77,7 @@ class IRCompiler(
 //        if (text in currentScope) {
 //            val variable = currentScope[text]!!
 //            variable.assignments++
-//            return variable.toTarget()
+//            return variable.toLValue()
 //        }
 //
 //        val predicate: (Map.Entry<String, Field>) -> Boolean = { (_, f) ->
@@ -139,7 +145,7 @@ class IRCompiler(
     }
 
     fun setVariable(variable: Variable, value: RValue) {
-        generator.move(variable.toTarget(), value)
+        generator.move(variable.toLValue(), value)
     }
     fun setVariable(variable: Variable, value: Value) {
         variable.type = value.type
@@ -153,8 +159,15 @@ class IRCompiler(
     fun setVariableIndexed(variable: Variable, index: Value, value: RValue) = setVariableIndexed(variable, index.value, value)
     fun setVariableIndexed(variable: Variable, index: RValue, value: Value) = setVariableIndexed(variable, index, value.value)
 
-    fun toType(ctx: AurumParser.TypeExprContext): Type {
-        val type = toType(ctx.unionType())
+    fun toType(ctx: AurumParser.TypeExprContext?): Type {
+        if (ctx == null) return Types.OBJECT
+        var type = toType(ctx.unionType())
+
+        val extensionAttribute = type.attributes().get<ExtensionAttribute>()
+        if (extensionAttribute != null) {
+            type = extensionAttribute.type
+        }
+
         ctx.typeSuffix()?.text?.count { it == '[' }?.let {
             return type.asArray(it)
         }
@@ -210,7 +223,7 @@ class IRCompiler(
                 val ctx = ctx.lambdaType()
                 return fnType(
                     toType(ctx.typeExpr()),
-                    ctx.typeList().typeExpr().map(::toType)
+                    ctx.typeList()?.typeExpr()?.map(::toType) ?: listOf()
                 )
             }
             ctx.typeExpr() != null -> {
@@ -243,11 +256,11 @@ class IRCompiler(
             fileContext.importMap.typeMap.values.flatMapTo(list) {
                 it.methods().toList()
             }
-            list += fileContext.fileClass.methods
+
             fileContext.classes.keys.flatMapTo(list) {
                 it.methods().toList()
             }
 
-            return list
+            return list.toSet().toList()
         }
 }

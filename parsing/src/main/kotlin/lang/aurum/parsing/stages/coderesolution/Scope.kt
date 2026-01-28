@@ -22,7 +22,9 @@ abstract class AbstractScope(
         this.variables += variables.map { it.name to it }
     }
 
-    open operator fun contains(string: String): Boolean = variables.contains(string)
+    open operator fun contains(string: String): Boolean =
+        variables.contains(string)
+            || parentScope?.contains(string) == true
 
     open operator fun get(string: String): Variable? = parentScope?.get(string) ?: variables[string]
 
