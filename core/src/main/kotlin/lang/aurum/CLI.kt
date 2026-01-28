@@ -7,6 +7,7 @@ import java.nio.file.Path
 import kotlin.reflect.KClass
 import kotlin.reflect.full.isSubclassOf
 import kotlin.reflect.full.memberProperties
+import kotlin.reflect.jvm.javaField
 
 /**
  * Constructs a group of [Parameters] and [Option]s
@@ -47,12 +48,13 @@ annotation class Option (
 @Retention(AnnotationRetention.RUNTIME)
 @Target(AnnotationTarget.FIELD)
 annotation class ArgumentGroup (
-    vararg val types: KClass<*>
+    val types: Array<KClass<*>>
 )
 
 private fun KClass<*>.getArgNames(): List<String> {
     val allAnnotations = this.memberProperties
-        .flatMap { it.annotations }
+        .mapNotNull { it.javaField }
+        .flatMap { it.annotations.toList() }
 
     val paramNames = mutableListOf<String>()
 
@@ -114,6 +116,7 @@ class CLI<T : Any>(
             Double::class.javaObjectType to DoubleConverter::class.java,
         ) as MutableMap<Class<*>, Class<TypeConverter<*>>>
 
+        @JvmStatic
         @Suppress("UNCHECKED_CAST")
         fun <T : Any, U : TypeConverter<T>> registerTypeConverter(type: Class<T>, converterType: Class<U>) {
             registeredTypeConverters[type] = converterType as Class<TypeConverter<*>>
@@ -145,7 +148,7 @@ class CLI<T : Any>(
                 val command = it.type.annotations.find{ a -> a is Command } as Command
                 val indexOfFirst = args.indexOfFirst { s -> s in command.names }
                 val argIndex = if (indexOfFirst != -1) indexOfFirst else 0
-                val indexOfFirst1 = args.toList().subList(argIndex, args.size).indexOfFirst { s -> s in paramNames }
+                val indexOfFirst1 = args.subList(argIndex, args.size).indexOfFirst { s -> s in paramNames }
                 val endIndex = if (indexOfFirst1 != -1) indexOfFirst1 else args.size
 
                 val newTarget = (it.type as Class<*>).getConstructor().newInstance()
@@ -259,12 +262,15 @@ class CLI<T : Any>(
                                 + t.annotations.mapNotNull { a -> a as? Command }.flatMap { a -> a.names.toList() }
                             )
 
-                        if ((args.isEmpty() || !args.any { s -> s in names }) && !t.java.isEnum)
+                        if (args.isEmpty() || (!args.any { s -> s in names } && !t.java.isEnum))
                             null
                         else {
                             if (t.annotations.any { a -> a is Command }) {
                                 val newInstance = t.javaObjectType.getConstructor().newInstance()
-                                CLI(newInstance, *args.subList(0, args.indexOfFirst { s -> s in names }).toTypedArray())
+                                val fromIndex = args.indexOfLast { s -> s in names }
+                                var toIndex = args.indexOfLast { s -> s in names }
+                                if (toIndex <= 0) toIndex = args.size
+                                CLI(newInstance, *args.subList(fromIndex, toIndex).toTypedArray())
                                     .parseArgs()
                             } else {
                                 parseValue(
