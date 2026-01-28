@@ -1,17 +1,19 @@
 package lang.aurum.parsing.stages
 
-import lang.aurum.model.PrimitiveType
+import lang.aurum.ir.ConstantPool
+import lang.aurum.model.Method
 import lang.aurum.model.Type
+import lang.aurum.model.Types
+import lang.aurum.model.impl.PrimitiveTypeImpl
 import lang.aurum.parsing.antlr.AurumLexer
 import lang.aurum.parsing.antlr.AurumParser
-import lang.aurum.parsing.model.ConstantPool
 import lang.aurum.parsing.model.MutableType
 import lang.aurum.parsing.model.MutableTypePool
 import org.antlr.v4.runtime.CharStreams
 import org.antlr.v4.runtime.CommonTokenStream
-import org.antlr.v4.runtime.ParserRuleContext
 import java.lang.reflect.AccessFlag
 import java.nio.file.Path
+import java.util.stream.IntStream
 import kotlin.io.path.nameWithoutExtension
 
 abstract class AbstractParsingContext
@@ -29,22 +31,33 @@ data class ParsingContext (
 data class FileContext (
     val parsingContext: ParsingContext,
     val path: Path,
-    val pkg: String,
+    val pkg: String?,
     val ctx: AurumParser.ProgramContext,
 ) : AbstractParsingContext() {
     val importMap: ImportMap = ImportMap(
         mutableMapOf(
-            "void" to PrimitiveType.VOID,
-            "bool" to PrimitiveType.BOOLEAN,
-            "byte" to PrimitiveType.BYTE,
-            "short" to PrimitiveType.SHORT,
-            "char" to PrimitiveType.CHAR,
-            "int" to PrimitiveType.INT,
-            "float" to PrimitiveType.FLOAT,
-            "long" to PrimitiveType.LONG,
-            "double" to PrimitiveType.DOUBLE,
-            "string" to Type.ofClass(String::class.java),
-            "object" to Type.ofClass(Object::class.java)
+            "void" to PrimitiveTypeImpl.VOID,
+            "bool" to PrimitiveTypeImpl.BOOLEAN,
+            "byte" to PrimitiveTypeImpl.BYTE,
+            "short" to PrimitiveTypeImpl.SHORT,
+            "char" to PrimitiveTypeImpl.CHAR,
+            "int" to PrimitiveTypeImpl.INT,
+            "float" to PrimitiveTypeImpl.FLOAT,
+            "long" to PrimitiveTypeImpl.LONG,
+            "double" to PrimitiveTypeImpl.DOUBLE,
+            "object" to Types.OBJECT,
+            "string" to Types.STRING,
+            "System" to Type.ofClass(System::class.java),
+        ),
+        mutableMapOf(
+            "range" to mutableSetOf(
+                Method.of(IntStream::class.java.getMethod("range", Int::class.java, Int::class.java)),
+            )
+        ),
+        symbolMap = mutableMapOf(
+            "println" to "java.lang.System.out.println",
+            "printf" to "java.lang.System.out.printf",
+            "print" to "java.lang.System.out.print",
         )
     )
     val classes: MutableMap<Type, TypeDeclCtx<*>> = mutableMapOf()
@@ -72,13 +85,27 @@ data class FileContext (
             return FileContext(
                 parsingContext,
                 path,
-                program.packageDecl().qualifiedName().text,
+                program.packageDecl()?.qualifiedName()?.text,
                 program,
             )
         }
     }
 
+
+
     override fun toString(): String = "$path"
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (javaClass != other?.javaClass) return false
+
+        other as FileContext
+
+        return path == other.path
+    }
+
+    override fun hashCode(): Int {
+        return path.hashCode()
+    }
 }
 
 private val parserCache: MutableMap<Path, AurumParser.ProgramContext> = mutableMapOf()
@@ -95,15 +122,9 @@ fun getParser(path: Path): AurumParser.ProgramContext {
     return parserCache[path]!!
 }
 
-sealed class MemberDeclCtx<T : ParserRuleContext>(open val ctx: T)
-data class OperatorDeclCtx(override val ctx: AurumParser.OperatorDeclContext) : MemberDeclCtx<AurumParser.OperatorDeclContext>(ctx)
-data class FuncDeclCtx(override val ctx: AurumParser.FuncDeclContext) : MemberDeclCtx<AurumParser.FuncDeclContext>(ctx)
-data class VarDeclCtx(override val ctx: AurumParser.VarDeclContext) : MemberDeclCtx<AurumParser.VarDeclContext>(ctx)
-
 sealed class TypeDeclCtx<T>(open val ctx: T)
 data class ClassDeclCtx(override val ctx: AurumParser.ClassDeclContext) : TypeDeclCtx<AurumParser.ClassDeclContext>(ctx)
 data class InterfaceDeclCtx(override val ctx: AurumParser.InterfaceDeclContext) : TypeDeclCtx<AurumParser.InterfaceDeclContext>(ctx)
 data class DecoratorDeclCtx(override val ctx: AurumParser.DecoratorDeclContext) : TypeDeclCtx<AurumParser.DecoratorDeclContext>(ctx)
 data class ExtensionDeclCtx(override val ctx: AurumParser.ExtensionDeclContext) : TypeDeclCtx<AurumParser.ExtensionDeclContext>(ctx)
 data class FileClassDeclCtx(override val ctx: List<AurumParser.DeclarationContext>) : TypeDeclCtx<List<AurumParser.DeclarationContext>>(ctx)
-data class TypeDefDeclCtx(override val ctx: AurumParser.TypeDefContext) : TypeDeclCtx<AurumParser.TypeDefContext>(ctx)
