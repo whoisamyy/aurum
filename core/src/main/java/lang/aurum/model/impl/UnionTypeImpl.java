@@ -5,6 +5,8 @@ import lang.aurum.model.TypeArgument;
 import lang.aurum.model.UnionType;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Arrays;
+
 public record UnionTypeImpl(
         Type[] types
 ) implements UnionType {
@@ -24,5 +26,10 @@ public record UnionTypeImpl(
     @Override
     public UnionType withTypeArguments(Type @NotNull [] typeArguments) {
         return Utils.applyTypeArguments(this, typeArguments);
+    }
+
+    @Override
+    public @NotNull UnionType withDefaultTypeArguments() {
+        return UnionType.ofTypeModels(Arrays.stream(types).map(Type::withDefaultTypeArguments).toArray(Type[]::new));
     }
 }

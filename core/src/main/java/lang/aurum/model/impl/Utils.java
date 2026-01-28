@@ -1,6 +1,7 @@
 package lang.aurum.model.impl;
 
 import lang.aurum.model.*;
+import lang.aurum.model.util.ParametrizedTypePool;
 import org.jetbrains.annotations.NotNull;
 
 import java.lang.reflect.AccessFlag;
@@ -244,6 +245,9 @@ public class Utils {
             Type newFieldType = replaceTemplates(f.type(), typeMap);
             newFields[i] = new FieldImpl(newType, f.name(), newFieldType, f.attributes(), f.accessFlags());
         }
+
+        ParametrizedTypePool.addType(type, newType);
+
         return newType;
     }
 

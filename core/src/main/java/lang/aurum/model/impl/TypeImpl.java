@@ -1,6 +1,7 @@
 package lang.aurum.model.impl;
 
 import lang.aurum.model.*;
+import lang.aurum.model.util.ParametrizedTypePool;
 import org.jetbrains.annotations.NotNull;
 
 import java.lang.reflect.AccessFlag;
@@ -68,6 +69,13 @@ public final class TypeImpl implements Type {
     @Override
     public Type withTypeArguments(Type @NotNull [] typeArguments) {
         return Utils.applyTypeArguments(this, typeArguments);
+    }
+
+    @Override
+    public @NotNull Type withDefaultTypeArguments() {
+        return typeArguments.isPresent()
+                ? ParametrizedTypePool.getBaseType(this)
+                : this;
     }
 
     @Override
@@ -148,17 +156,6 @@ public final class TypeImpl implements Type {
 
     @Override
     public String toString() {
-        return "TypeImpl[" +
-                "className=" + className + ", " +
-                "pkg=" + pkg + ", " +
-                "superClass=" + superClass + ", " +
-                "interfaces=" + interfaces + ", " +
-                "fields=" + fields + ", " +
-                "methods=" + methods + ", " +
-                "accessFlags=" + accessFlags + ", " +
-                "attributes=" + attributes + ", " +
-                "typeParameters=" + typeParameters + ", " +
-                "typeArguments=" + typeArguments + ']';
+        return toUsageString();
     }
-
 }

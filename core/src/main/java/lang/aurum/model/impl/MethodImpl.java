@@ -4,6 +4,7 @@ import lang.aurum.model.*;
 import org.jetbrains.annotations.NotNull;
 
 import java.lang.reflect.AccessFlag;
+import java.util.Arrays;
 import java.util.Optional;
 
 public record MethodImpl(
@@ -28,5 +29,19 @@ public record MethodImpl(
         return Utils.applyTypeArguments(this, owner, typeArguments);
     }
 
+    @Override
+    public @NotNull Method withDefaultTypeArguments() {
+        return this; // TODO
+    }
 
+    @Override
+    public @NotNull String toString() {
+        return returnType.toUsageString()
+                + " " + owner.toUsageString() + "." + name
+                + "("
+                + String.join(
+                        ", ",
+                        Arrays.stream(parameters).map(Parameter::type).map(Type::toUsageString).toList()
+                ) + ")";
+    }
 }

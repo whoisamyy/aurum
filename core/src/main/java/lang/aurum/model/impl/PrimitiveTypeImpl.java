@@ -25,6 +25,7 @@ public enum PrimitiveTypeImpl implements PrimitiveType {
         this.jvmName = jvmName;
         this.className = className;
         this.typeKind = typeKind;
+
     }
 
     // array types are not primitive so return TypeImpl
@@ -37,6 +38,7 @@ public enum PrimitiveTypeImpl implements PrimitiveType {
 
         return new ArrayTypeImpl<PrimitiveType>(this, dimensions);
     }
+
     @NotNull
     @Override
     public TypeKind typeKind() {
@@ -52,5 +54,20 @@ public enum PrimitiveTypeImpl implements PrimitiveType {
     @Override
     public String jvmName() {
         return jvmName;
+    }
+
+    @Override
+    public Type boxed() {
+        return switch (this) {
+            case VOID -> Type.ofClass(Void.class);
+            case BOOLEAN -> Type.ofClass(Boolean.class);
+            case BYTE -> Type.ofClass(Byte.class);
+            case SHORT -> Type.ofClass(Short.class);
+            case CHAR -> Type.ofClass(Character.class);
+            case INT -> Type.ofClass(Integer.class);
+            case FLOAT -> Type.ofClass(Float.class);
+            case LONG -> Type.ofClass(Long.class);
+            case DOUBLE -> Type.ofClass(Double.class);
+        };
     }
 }
