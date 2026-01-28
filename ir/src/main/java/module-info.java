@@ -7,4 +7,5 @@ module aurum.ir {
     requires transitive aurum.core;
 
     requires kotlin.stdlib;
+    requires org.jetbrains.annotations;
 }
