@@ -9,7 +9,7 @@ import java.lang.reflect.AccessFlag;
 public final class FieldFactory {
     public static Field of(java.lang.reflect.Field field) {
         return new FieldImpl(
-                TypeFactory.ofClass(field.getDeclaringClass()),
+                TypeFactory.ofType(field.getDeclaringClass()),
                 field.getName(),
                 TypeFactory.ofType(field.getGenericType()),
                 Utils.EMPTY_ATTRIBUTES,

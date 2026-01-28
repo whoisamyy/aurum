@@ -48,12 +48,12 @@ public final class TypeFactory {
                 : Optional.of(new Type[interfaces.length]);
 
         TypeImpl type = new TypeImpl(
-                clazz.getSimpleName(),
+                clazz.getName().substring(clazz.getName().lastIndexOf('.')+1),
                 clazz.getPackageName(),
                 null,
                 interfaceTypes,
                 new Field[clazz.getFields().length],
-                new Method[clazz.getMethods().length],
+                new Method[clazz.getMethods().length + clazz.getConstructors().length],
                 clazz.accessFlags().toArray(AccessFlag[]::new),
                 lang.aurum.model.impl.Utils.EMPTY_ATTRIBUTES,
                 Utils.getTypeParameters(clazz),
@@ -64,22 +64,24 @@ public final class TypeFactory {
 
         populateType(clazz, type);
 
-        return type;
+        return type.asArray(arrayDimensions);
     }
 
     private static void populateType(Class<?> clazz, TypeImpl type) {
         Utils.processTypeParameters(type, clazz);
 
         Type superClass = clazz.getSuperclass() != null
-                ? ofClass(clazz.getSuperclass())
+                ? ofType(clazz.getSuperclass())
                 : null;
         if (!type.isPrimitive() && !type.fullName().equals("java.lang.Object"))
             type.setSuperClass(Objects.requireNonNullElse(superClass, Type.ofClass(Object.class)));
 
         Class<?>[] interfaces = clazz.getInterfaces();
-        Arrays.stream(interfaces)
-              .map(TypeFactory::ofClass)
-              .toList().toArray(type.interfaces().orElse(lang.aurum.model.impl.Utils.EMPTY_TYPES));
+        Type[] newInterfaces = Arrays.stream(interfaces)
+              .map(TypeFactory::ofType)
+              .toList().toArray(Type[]::new);
+        Type[] dest = type.interfaces().orElse(lang.aurum.model.impl.Utils.EMPTY_TYPES);
+        System.arraycopy(newInterfaces, 0, dest, 0, Integer.min(newInterfaces.length, dest.length));
 
         processMembers(clazz, type);
     }
