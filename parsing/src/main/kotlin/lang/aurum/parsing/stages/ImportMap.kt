@@ -8,7 +8,8 @@ import kotlin.reflect.full.isSubclassOf
 class ImportMap(
     val typeMap: MutableMap<String, Type> = mutableMapOf(),
     val methodMap: MutableMap<String, MutableSet<Method>> = mutableMapOf(),
-    val fieldMap: MutableMap<String, MutableSet<Field>> = mutableMapOf()
+    val fieldMap: MutableMap<String, MutableSet<Field>> = mutableMapOf(),
+    val symbolMap: MutableMap<String, String> = mutableMapOf(),
 ) {
     operator fun set(key: String, value: Type) {
         typeMap[key] = value
@@ -32,15 +33,33 @@ class ImportMap(
     @JvmName("plusAssignMethod")
     operator fun plusAssign(pair: Pair<String, Method>) {
         val (key, value) = pair
-        methodMap.putIfAbsent(key, mutableSetOf())
-        methodMap[key]!!.add(value)
+        methodMap.computeIfAbsent(key) { mutableSetOf() }.add(value)
+    }
+
+    @JvmName("plusAssignMethods")
+    operator fun plusAssign(pair: Pair<String, Iterable<Method>>) {
+        val (key, values) = pair
+        methodMap.computeIfAbsent(key) { mutableSetOf() }.addAll(values)
     }
 
     @JvmName("plusAssignField")
     operator fun plusAssign(pair: Pair<String, Field>) {
         val (key, value) = pair
-        fieldMap.putIfAbsent(key, mutableSetOf())
-        fieldMap[key]!!.add(value)
+        fieldMap.computeIfAbsent(key) { mutableSetOf() }.add(value)
+    }
+
+    /**
+     * @param pair Pair of Strings, containing key (alias) and value in this order.
+     */
+    @JvmName("plusAssignSymbol")
+    operator fun plusAssign(pair: Pair<String, String>) {
+        val (key, value) = pair
+        symbolMap[key] = value
+    }
+
+    operator fun plusAssign(symbol: Symbol) {
+        val (value, key) = symbol
+        symbolMap[key] = value
     }
 
     inline operator fun <reified T> get(key: String): Any? {
@@ -48,11 +67,13 @@ class ImportMap(
             T::class.isSubclassOf(Type::class) -> typeMap[key] as T?
             T::class.isSubclassOf(Field::class) -> fieldMap[key] as T?
             T::class.isSubclassOf(Method::class) -> methodMap[key] as T?
+            T::class == String::class -> symbolMap[key] as T?
             T::class == Any::class -> {
                 when {
                     typeMap[key] != null -> typeMap[key]
                     fieldMap[key] != null -> fieldMap[key]
                     methodMap[key] != null -> methodMap[key]
+                    symbolMap[key] != null -> symbolMap[key]
                     else -> null
                 } as T?
             }
