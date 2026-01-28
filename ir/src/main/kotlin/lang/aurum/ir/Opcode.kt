@@ -40,9 +40,9 @@ enum class Opcode {
     PutField,
     GetMember,
     GetMethod,
+    @Deprecated("""Use Closure instead""")
     GetMethodStatic,
     GetStatic,
-    PutStatic,
     ArrayLoad,
     ArrayStore,
     Cast,
@@ -50,5 +50,6 @@ enum class Opcode {
     TypeOf,
     Label,
     Switch,
+    @Deprecated("No SSA so remove it")
     Phi
 }
