@@ -1,6 +1,5 @@
-package lang.aurum.parsing.model
+package lang.aurum.ir
 
-import lang.aurum.ir.*
 import lang.aurum.model.Field
 import lang.aurum.model.Member
 import lang.aurum.model.Method
