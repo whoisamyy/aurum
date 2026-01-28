@@ -1,7 +1,9 @@
 package lang.aurum.attribute
 
 import lang.aurum.model.Attribute
+import lang.aurum.model.Type
 
-interface ExtensionAttribute : Attribute {
+abstract class ExtensionAttribute() : Attribute {
+    lateinit var type: Type
     override fun name(): String = "Extension"
 }
