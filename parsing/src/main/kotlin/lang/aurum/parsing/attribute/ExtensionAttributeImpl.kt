@@ -5,8 +5,8 @@ import lang.aurum.parsing.antlr.AurumParser
 
 class ExtensionAttributeImpl (
     val typeCtx: AurumParser.TypeExprContext
-) : ExtensionAttribute {
-    override fun values(): Map<String?, Any?> =
+) : ExtensionAttribute() {
+    override fun values(): Map<String, Any?> =
         mapOf(
             "typeCtx" to typeCtx
         )
