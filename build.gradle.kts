@@ -17,3 +17,7 @@ dependencies {
 tasks.test {
     useJUnitPlatform()
 }
+
+java {
+    modularity.inferModulePath.set(true)
+}
