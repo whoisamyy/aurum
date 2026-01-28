@@ -4,5 +4,5 @@ import lang.aurum.model.Attribute
 
 object PrimaryConstructorAttribute : Attribute {
     override fun name(): String = "PrimaryConstructor"
-    override fun values(): Map<String?, Any?> = mapOf()
+    override fun values(): Map<String, Any?> = mapOf()
 }
