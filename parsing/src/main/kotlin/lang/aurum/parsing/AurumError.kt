@@ -51,7 +51,7 @@ class AurumCompilationError(
  *
  * @param message The error message
  * @param ctx The parser rule context providing location information
- * @param fileContext Optional file context providing file path information
+ * @param fileContext Optional file context providing file srcPath information
  * @return An [AurumCompilationError] with formatted location information
  */
 fun aurumError(
@@ -69,8 +69,26 @@ fun aurumError(
  * Creates an [AurumCompilationError] with location information from a parser context.
  *
  * @param message The error message
+ * @param ctx The parser rule context providing location information
+ * @param path Optional srcPath information
+ * @return An [AurumCompilationError] with formatted location information
+ */
+fun aurumError(
+    message: String,
+    ctx: ParserRuleContext? = null,
+    path: Path? = null
+): AurumCompilationError {
+    val line = ctx?.start?.line
+    val column = ctx?.start?.charPositionInLine
+    return AurumCompilationError(message, path, line, column)
+}
+
+/**
+ * Creates an [AurumCompilationError] with location information from a parser context.
+ *
+ * @param message The error message
  * @param positionString The string providing location information
- * @param fileContext Optional file context providing file path information
+ * @param fileContext Optional file context providing file srcPath information
  * @return An [AurumCompilationError] with formatted location information
  */
 fun aurumError(
@@ -86,11 +104,30 @@ fun aurumError(
 }
 
 /**
+ * Creates an [AurumCompilationError] with location information from a parser context.
+ *
+ * @param message The error message
+ * @param positionString The string providing location information
+ * @param path Optional srcPath information
+ * @return An [AurumCompilationError] with formatted location information
+ */
+fun aurumError(
+    message: String,
+    positionString: String?,
+    path: Path? = null
+): AurumCompilationError {
+    val position = positionString?.split(":")?.map(String::toInt)
+    val line = position?.get(0)
+    val column = position?.get(1)
+    return AurumCompilationError(message, path, line, column)
+}
+
+/**
  * Creates an [AurumCompilationError] with location information from a terminal node.
  *
  * @param message The error message
  * @param node The terminal node providing location information
- * @param fileContext Optional file context providing file path information
+ * @param fileContext Optional file context providing file srcPath information
  * @return An [AurumCompilationError] with formatted location information
  */
 fun aurumError(
@@ -108,7 +145,7 @@ fun aurumError(
  * Creates an [AurumCompilationError] with explicit location information.
  *
  * @param message The error message
- * @param filePath Optional file path
+ * @param filePath Optional file srcPath
  * @param line Optional line number (1-based)
  * @param column Optional column number (0-based)
  * @return An [AurumCompilationError] with formatted location information
@@ -126,7 +163,7 @@ fun aurumError(
  * Creates an [AurumCompilationError] with explicit location information.
  *
  * @param message The error message
- * @param filePath Optional file path
+ * @param filePath Optional file srcPath
  * @param positionString in format of "line:column"
  * @return An [AurumCompilationError] with formatted location information
  */
@@ -146,7 +183,7 @@ fun aurumError(
  *
  * @param message The error message
  * @param ctx The parser rule context providing location information
- * @param fileContext Optional file context providing file path information
+ * @param fileContext Optional file context providing file srcPath information
  * @throws AurumCompilationError Always throws an exception
  */
 fun throwAurumError(
@@ -162,7 +199,7 @@ fun throwAurumError(
  *
  * @param message The error message
  * @param node The terminal node providing location information
- * @param fileContext Optional file context providing file path information
+ * @param fileContext Optional file context providing file srcPath information
  * @throws AurumCompilationError Always throws an exception
  */
 fun throwAurumError(
@@ -179,7 +216,7 @@ fun throwAurumError(
  *
  * @param message The error message
  * @param positionString The string providing location information
- * @param fileContext Optional file context providing file path information
+ * @param fileContext Optional file context providing file srcPath information
  * @throws AurumCompilationError Always throws an exception
  */
 fun throwAurumError(
@@ -194,7 +231,7 @@ fun throwAurumError(
  * Throws an [AurumCompilationError] with explicit location information.
  *
  * @param message The error message
- * @param filePath Optional file path
+ * @param filePath Optional file srcPath
  * @param line Optional line number (1-based)
  * @param column Optional column number (0-based)
  * @throws AurumCompilationError Always throws an exception
