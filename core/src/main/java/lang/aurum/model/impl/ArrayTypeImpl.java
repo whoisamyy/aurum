@@ -5,15 +5,13 @@ import org.jetbrains.annotations.NotNull;
 
 import java.io.Serializable;
 import java.lang.reflect.AccessFlag;
-import java.util.Optional;
 
 public record ArrayTypeImpl<T extends Type>(
         T componentType,
         int arrayDimensions
 ) implements ArrayType<T> {
-    @SuppressWarnings("OptionalUsedAsFieldOrParameterType")
-    private static final Optional<Type[]> DEFAULT_ARRAY_INTERFACES =
-            Optional.of(new Type[]{Type.ofClass(Serializable.class), Type.ofClass(Cloneable.class)});
+    private static final Type[] DEFAULT_ARRAY_INTERFACES =
+            new Type[]{Type.ofClass(Serializable.class), Type.ofClass(Cloneable.class)};
 
     @Override
     public @NotNull String className() {
@@ -31,7 +29,7 @@ public record ArrayTypeImpl<T extends Type>(
     }
 
     @Override
-    public @NotNull Optional<Type[]> interfaces() {
+    public @NotNull Type @NotNull [] interfaces() {
         return DEFAULT_ARRAY_INTERFACES;
     }
 
@@ -70,12 +68,12 @@ public record ArrayTypeImpl<T extends Type>(
     }
 
     @Override
-    public @NotNull Optional<TypeParameter[]> typeParameters() {
+    public @NotNull TypeParameter @NotNull [] typeParameters() {
         return componentType.typeParameters();
     }
 
     @Override
-    public @NotNull Optional<TypeArgument[]> typeArguments() {
+    public @NotNull TypeArgument @NotNull [] typeArguments() {
         return componentType.typeArguments();
     }
 

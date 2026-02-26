@@ -1,6 +1,7 @@
 package lang.aurum.model.impl;
 
 import lang.aurum.model.*;
+import lang.aurum.model.util.ParametrizedMethodPool;
 import lang.aurum.model.util.ParametrizedTypePool;
 import org.jetbrains.annotations.NotNull;
 
@@ -8,7 +9,6 @@ import java.lang.reflect.AccessFlag;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
 
 public class Utils {
     public static final AccessFlag @NotNull [] DEFAULT_ACCESS_FLAGS = new AccessFlag[]{AccessFlag.PUBLIC, AccessFlag.FINAL};
@@ -19,6 +19,7 @@ public class Utils {
     public static final TypeParameter @NotNull [] EMPTY_TYPE_PARAMETERS = new TypeParameter[0];
     public static final Type @NotNull [] EMPTY_TYPES = new Type[0];
     public static final TypeArgument @NotNull [] EMPTY_TYPE_ARGUMENTS = new TypeArgument[0];
+    public static final Parameter[] DEFAULT_ARRAY_INIT_PARAMETERS = { new ParameterImpl("length", Types.INT) };
 
     public static Type replaceTemplates(Type type, Map<String, Type> typeMap) {
         if (type == null) return null;
@@ -34,9 +35,9 @@ public class Utils {
 
         // Only rebuild when there are type arguments and at least one bound changes
         var tArgsOpt = type.typeArguments();
-        if (tArgsOpt.isEmpty()) return type;
+        if (tArgsOpt.length == 0) return type;
 
-        var oldArgs = tArgsOpt.get();
+        var oldArgs = tArgsOpt;
         var newArgs = new TypeArgument[oldArgs.length];
         boolean changed = false;
         for (int i = 0; i < oldArgs.length; i++) {
@@ -58,7 +59,7 @@ public class Utils {
                 type.accessFlags(),
                 type.attributes(),
                 type.typeParameters(),
-                Optional.of(newArgs)
+                newArgs
         );
     }
 
@@ -92,10 +93,10 @@ public class Utils {
                 }
             }
             case Type typeParam -> {
-                if (type.typeArguments().isEmpty())
+                if (type.typeArguments().length == 0)
                     break;
 
-                var tTypeArgs = type.typeArguments().get();
+                var tTypeArgs = type.typeArguments();
                 for (var typeArg : tTypeArgs) {
                     if (typeArg.bound() instanceof TemplateType template)
                         typeMap.put(template.className(), typeArguments[argC++]);
@@ -126,9 +127,9 @@ public class Utils {
         Map<String, Type> typeMap = new HashMap<>();
         if (typeArguments == null)
             return typeMap;
-        if (type.typeParameters().isEmpty())
+        if (type.typeParameters().length == 0)
             return typeMap;
-        TypeParameter[] tps = type.typeParameters().get();
+        TypeParameter[] tps = type.typeParameters();
         int n = Math.min(tps.length, typeArguments.length);
         for (int i = 0; i < n; i++) {
             typeMap.put(tps[i].name(), typeArguments[i].bound());
@@ -138,9 +139,9 @@ public class Utils {
 
     // Convert raw type array to named type arguments based on the type's type parameters order
     public static TypeArgument[] toTypeArguments(Type type, Type[] typeArguments) {
-        if (typeArguments == null || type.typeParameters().isEmpty())
+        if (typeArguments == null || type.typeParameters().length == 0)
             return new TypeArgument[0];
-        TypeParameter[] tps = type.typeParameters().get();
+        TypeParameter[] tps = type.typeParameters();
         // Filter out null type parameters
         int nonNullCount = 0;
         for (TypeParameter tp : tps) if (tp != null) nonNullCount++;
@@ -199,17 +200,15 @@ public class Utils {
     // Apply type arguments to a Type (class/interface implementation)
     public static Type applyTypeArguments(Type type, TypeArgument[] typeArguments) {
         if (typeArguments == null) return type;
-        if (type.typeParameters().isEmpty()) return type;
+        if (type.typeParameters().length == 0) return type;
+//        if (type.typeArguments().isPresent()) type = type.getRawType();
 
         Map<String, Type> typeMap = getTypeMap(type, typeArguments);
         if (typeMap.isEmpty()) return type;
 
         Type newSuperClass = replaceTemplates(type.superClass(), typeMap);
-        Optional<Type[]> newInterfaces = type.interfaces().map(intfs -> {
-            Type[] arr = new Type[intfs.length];
-            for (int i = 0; i < intfs.length; i++) arr[i] = replaceTemplates(intfs[i], typeMap);
-            return arr;
-        });
+        Type[] newInterfaces = new Type[type.interfaces().length];
+        for (int i = 0; i < type.interfaces().length; i++) newInterfaces[i] = replaceTemplates(type.interfaces()[i], typeMap);
 
         Field[] oldFields = type.fields();
         Field[] newFields = new Field[oldFields.length];
@@ -227,7 +226,7 @@ public class Utils {
                 type.accessFlags(),
                 type.attributes(),
                 type.typeParameters(),
-                Optional.of(typeArguments)
+                typeArguments
         );
 
         for (int i = 0; i < oldMethods.length; i++) {
@@ -254,7 +253,7 @@ public class Utils {
     public static Type applyTypeArguments(Type type, Type[] typeArguments) {
         if (typeArguments == null) return type;
         if (typeArguments.length == 0) return type;
-        if (type.typeParameters().isEmpty()) return type;
+        if (type.typeParameters().length == 0) return type;
         TypeArgument[] args = toTypeArguments(type, typeArguments);
         if (args.length == 0) return type;
         return applyTypeArguments(type, args);
@@ -278,17 +277,14 @@ public class Utils {
         Type[] newEx = new Type[oldEx.length];
         for (int j = 0; j < oldEx.length; j++) newEx[j] = replaceTemplates(oldEx[j], typeMap);
 
-        Optional<TypeParameter[]> newMethodTypeParams = method.typeParameters().map(mTPs -> {
-            TypeParameter[] res = new TypeParameter[mTPs.length];
-            for (int j = 0; j < mTPs.length; j++) {
-                var tp = mTPs[j];
-                Type newBound = replaceTemplates(tp.bound(), typeMap);
-                res[j] = new TypeParameterImpl(tp.name(), newBound);
-            }
-            return res;
-        });
+        TypeParameter[] newMethodTypeParams = new TypeParameter[method.typeParameters().length];
+        for (int j = 0; j < method.typeParameters().length; j++) {
+            var tp = method.typeParameters()[j];
+            Type newBound = replaceTemplates(tp.bound(), typeMap);
+            newMethodTypeParams[j] = new TypeParameterImpl(tp.name(), newBound);
+        }
 
-        return new MethodImpl(
+        MethodImpl newMethod = new MethodImpl(
                 newOwner,
                 method.name(),
                 newReturnType,
@@ -299,12 +295,15 @@ public class Utils {
                 method.typeArguments(),
                 method.attributes()
         );
+        ParametrizedMethodPool.addMethod(method, newMethod);
+
+        return newMethod;
     }
 
     public static Method applyTypeArguments(Method method, Type newOwner, Type[] typeArguments) {
         if (typeArguments == null) return method;
-        if (method.typeParameters().isEmpty()) return applyTypeArguments(method, newOwner, new TypeArgument[0]);
-        TypeParameter[] tps = method.typeParameters().get();
+        if (method.typeParameters().length == 0) return applyTypeArguments(method, newOwner, new TypeArgument[0]);
+        TypeParameter[] tps = method.typeParameters();
         int n = Math.min(tps.length, typeArguments.length);
         TypeArgument[] args = new TypeArgument[n];
         for (int i = 0; i < n; i++) {

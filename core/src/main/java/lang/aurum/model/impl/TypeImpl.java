@@ -7,32 +7,30 @@ import org.jetbrains.annotations.NotNull;
 import java.lang.reflect.AccessFlag;
 import java.util.Arrays;
 import java.util.Objects;
-import java.util.Optional;
 
-@SuppressWarnings("OptionalUsedAsFieldOrParameterType")
 public final class TypeImpl implements Type {
     private final String className;
     private final String pkg;
     private Type superClass;
-    private final Optional<Type[]> interfaces;
+    private final @NotNull Type @NotNull [] interfaces;
     private final Field[] fields;
     private final Method[] methods;
     private final AccessFlag[] accessFlags;
     private final Attribute[] attributes;
-    private final Optional<TypeParameter[]> typeParameters;
-    private final Optional<TypeArgument[]> typeArguments;
+    private final @NotNull TypeParameter @NotNull [] typeParameters;
+    private final @NotNull TypeArgument @NotNull [] typeArguments;
 
     public TypeImpl(
             String className,
             String pkg,
             Type superClass,
-            Optional<Type[]> interfaces,
+            @NotNull Type @NotNull [] interfaces,
             Field[] fields,
             Method[] methods,
             AccessFlag[] accessFlags,
             Attribute[] attributes,
-            Optional<TypeParameter[]> typeParameters,
-            Optional<TypeArgument[]> typeArguments
+            @NotNull TypeParameter @NotNull [] typeParameters,
+            @NotNull TypeArgument @NotNull [] typeArguments
     ) {
         this.className = className;
         this.pkg = pkg;
@@ -73,9 +71,12 @@ public final class TypeImpl implements Type {
 
     @Override
     public @NotNull Type withDefaultTypeArguments() {
-        return typeArguments.isPresent()
-                ? ParametrizedTypePool.getBaseType(this)
-                : this;
+        return ParametrizedTypePool.getBaseType(this)
+                                   .withTypeArguments(
+                                           Arrays.stream(typeParameters())
+                                                 .map(TypeParameter::bound)
+                                                 .toArray(Type[]::new)
+                                   );
     }
 
     @Override
@@ -98,7 +99,7 @@ public final class TypeImpl implements Type {
     }
 
     @Override
-    public @NotNull Optional<Type[]> interfaces() {
+    public @NotNull Type @NotNull [] interfaces() {
         return interfaces;
     }
 
@@ -123,12 +124,12 @@ public final class TypeImpl implements Type {
     }
 
     @Override
-    public @NotNull Optional<TypeParameter[]> typeParameters() {
+    public @NotNull TypeParameter @NotNull [] typeParameters() {
         return typeParameters;
     }
 
     @Override
-    public @NotNull Optional<TypeArgument[]> typeArguments() {
+    public @NotNull TypeArgument @NotNull [] typeArguments() {
         return typeArguments;
     }
 
