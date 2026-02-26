@@ -23,7 +23,6 @@ val TerminalNode.positionString: String
         return "${token.line}:${token.charPositionInLine}"
     }
 
-
 class IRCompiler(
     val fileContext: FileContext,
     val method: Method
@@ -102,9 +101,7 @@ class IRCompiler(
     }
 
     fun process(statement: AurumParser.StatementContext) {
-        startScope(currentScope)
         statementProcessor.processStatement(statement)
-        endScope()
     }
 
     fun process(expression: AurumParser.ExpressionContext) {
