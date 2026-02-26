@@ -11,7 +11,6 @@ import lang.aurum.model.impl.Utils;
 import java.lang.reflect.AccessFlag;
 import java.lang.reflect.Constructor;
 import java.util.Arrays;
-import java.util.Optional;
 
 public final class MethodFactory {
     public static Method ofMethod(java.lang.reflect.Method method) {
@@ -23,7 +22,7 @@ public final class MethodFactory {
                 Arrays.stream(method.getGenericExceptionTypes()).map(TypeFactory::ofType).toArray(Type[]::new),
                 method.accessFlags().toArray(AccessFlag[]::new),
                 lang.aurum.model.factory.Utils.getTypeParameters(method),
-                Optional.empty(), // empty because of the way method generic parametrization is handled
+                Utils.EMPTY_TYPE_ARGUMENTS, // empty because of the way method generic parametrization is handled
                 Utils.EMPTY_ATTRIBUTES
         );
 
@@ -41,7 +40,7 @@ public final class MethodFactory {
                 Arrays.stream(constructor.getGenericExceptionTypes()).map(TypeFactory::ofType).toArray(Type[]::new),
                 constructor.accessFlags().toArray(AccessFlag[]::new),
                 lang.aurum.model.factory.Utils.getTypeParameters(constructor),
-                Optional.empty(), // left empty because of the way method generic parametrization is handled
+                Utils.EMPTY_TYPE_ARGUMENTS, // left empty because of the way method generic parametrization is handled
                 Utils.EMPTY_ATTRIBUTES
         );
 

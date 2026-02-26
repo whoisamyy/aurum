@@ -9,7 +9,6 @@ import java.lang.reflect.GenericDeclaration;
 import java.lang.reflect.TypeVariable;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.Optional;
 import java.util.SequencedSet;
 
 public final class Utils {
@@ -34,20 +33,17 @@ public final class Utils {
                 typeCache.put(key, bound);
             }
             TypeParameterImpl apply = new TypeParameterImpl(typeVariable.getName(), bound);
-            int finalI = i;
-            type.typeParameters().ifPresent(
-                    params -> params[finalI] = apply
-            );
+            type.typeParameters()[i] = apply;
         }
     }
 
-    public static Optional<TypeParameter[]> getTypeParameters(GenericDeclaration generic) {
+    public static TypeParameter[] getTypeParameters(GenericDeclaration generic) {
         var typeParams = new TypeParameter[generic.getTypeParameters().length];
 
         if (typeParams.length == 0)
-            return Optional.empty();
+            return lang.aurum.model.impl.Utils.EMPTY_TYPE_PARAMETERS;
 
-        return Optional.of(typeParams);
+        return typeParams;
     }
 
     public static <T> void addAll(SequencedSet<T> set, T[] elements) {
