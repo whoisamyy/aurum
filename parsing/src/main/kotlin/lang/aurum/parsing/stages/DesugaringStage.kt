@@ -37,6 +37,9 @@ class DesugaringStage(parsingContext: ParsingContext) : ParsingStage(parsingCont
 
         type.methods().filter { it.name() == "<init>" && it.owner() == type }
             .ifEmpty {
+                if (type.isInterface)
+                    return@ifEmpty
+
                 val constructor = MutableMethod(
                     type,
                     "<init>",
@@ -61,6 +64,7 @@ class DesugaringStage(parsingContext: ParsingContext) : ParsingStage(parsingCont
         val compiler = IRCompiler(ctx.fileContext, constructor)
         val params = constructor.parameters()
         val owner = constructor.owner()
+        compiler.generator.invokeConstructor(Reference.Super)
         for (field in params) {
             compiler.generator.putField(
                 Reference.This,
