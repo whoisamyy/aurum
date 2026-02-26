@@ -2,12 +2,10 @@ package lang.aurum.parsing.model
 
 import lang.aurum.attribute.ExtensionAttribute
 import lang.aurum.model.*
+import lang.aurum.model.factory.TypeFactory.TypePool
 import lang.aurum.model.impl.*
-import lang.aurum.model.util.ParametrizedTypePool
 import lang.aurum.parsing.attribute.contains
 import java.lang.reflect.AccessFlag
-import java.util.*
-import kotlin.jvm.optionals.getOrNull
 
 object MutableTypePool {
     val pool: MutableMap<Pair<String, List<TypeArgument>?>, MutableType> = mutableMapOf() // fullname to type
@@ -20,13 +18,13 @@ object MutableTypePool {
         className: String,
         pkg: String?,
         superClass: Type? = Types.OBJECT,
-        interfaces: MutableList<Type>? = mutableListOf(),
+        interfaces: MutableList<Type> = mutableListOf(),
         fields: MutableList<Field> = mutableListOf(),
         methods: MutableList<Method> = mutableListOf(),
         accessFlags: MutableList<AccessFlag> = mutableListOf(),
         attributes: MutableList<Attribute> = mutableListOf(),
-        typeParameters: MutableList<TypeParameter>? = null,
-        typeArguments: MutableList<TypeArgument>? = null,
+        typeParameters: MutableList<TypeParameter> = mutableListOf(),
+        typeArguments: MutableList<TypeArgument> = mutableListOf(),
         primitive: Boolean = false
     ): MutableType {
         val fullname = if (pkg != null) "$pkg.$className" else className
@@ -56,25 +54,25 @@ open class MutableType (
     val className: String,
     val pkg: String,
     var superClass: Type? = Types.OBJECT,
-    var interfaces: MutableList<Type>? = mutableListOf(),
+    var interfaces: MutableList<Type> = mutableListOf(),
     var fields: MutableList<Field> = mutableListOf(),
     var methods: MutableList<Method> = mutableListOf(),
     var accessFlags: MutableList<AccessFlag> = mutableListOf(),
     var attributes: MutableList<Attribute> = mutableListOf(),
-    var typeParameters: MutableList<TypeParameter>? = mutableListOf(),
-    var typeArguments: MutableList<TypeArgument>? = mutableListOf(),
+    var typeParameters: MutableList<TypeParameter> = mutableListOf(),
+    var typeArguments: MutableList<TypeArgument> = mutableListOf(),
     var primitive: Boolean = false
 ) : Type {
     constructor() : this("", "")
 
-    init {
-        this.withTypeArguments(this.typeArguments?.toTypedArray() ?: arrayOf())
-    }
+//    init {
+//        this.withTypeArguments(this.typeArguments.toTypedArray())
+//    }
 
     override fun className(): String = className
     override fun pkg(): String = pkg
     override fun superClass(): Type? = superClass
-    override fun interfaces(): Optional<Array<out Type>> = Optional.ofNullable(interfaces?.toTypedArray())
+    override fun interfaces(): Array<out Type> = interfaces.toTypedArray()
     override fun fields(): Array<out Field> {
         val type = this // .withTypeArguments(typeArguments?.toTypedArray() ?: arrayOf())
         return (type.fields + (type.superClass?.fields()?.toMutableList() ?: mutableListOf())).toTypedArray()
@@ -83,14 +81,14 @@ open class MutableType (
         val type = this // .withTypeArguments(typeArguments?.toTypedArray() ?: arrayOf())
         return (type.methods.toTypedArray() +
                 (type.superClass?.methods() ?: arrayOf()) +
-                (type.interfaces?.map(Type::methods)?.flatMap(Array<Method>::toList) ?: listOf()))
+                type.interfaces.map(Type::methods).flatMap(Array<Method>::toList))
             .toSet()
             .toTypedArray()
     }
     override fun accessFlags(): Array<out AccessFlag> = accessFlags.toTypedArray()
     override fun attributes(): Array<out Attribute> = attributes.toTypedArray()
-    override fun typeParameters(): Optional<Array<out TypeParameter>> = Optional.ofNullable(typeParameters?.toTypedArray())
-    override fun typeArguments(): Optional<Array<out TypeArgument>> = Optional.ofNullable(typeArguments?.toTypedArray())
+    override fun typeParameters(): Array<out TypeParameter> = typeParameters.toTypedArray()
+    override fun typeArguments(): Array<out TypeArgument> = typeArguments.toTypedArray()
     override fun isPrimitive(): Boolean = primitive
 
     override fun asArray(dimensions: Int): MutableType {
@@ -107,7 +105,11 @@ open class MutableType (
     }
 
     override fun withDefaultTypeArguments(): Type {
-        return ParametrizedTypePool.getBaseType(this)
+        return this.withTypeArguments(
+            this.typeParameters
+                .map { it.bound() }
+                .toTypedArray()
+        )
     }
 
     fun applyTypeArguments(vararg typeArguments: TypeArgument) {
@@ -124,13 +126,17 @@ open class MutableType (
 
     private fun copyFrom(newType: Type) {
         this.superClass = newType.superClass()
-        this.interfaces = newType.interfaces().getOrNull()?.toMutableList()
+        this.interfaces = newType.interfaces().toMutableList()
         this.fields = newType.fields().toMutableList()
         this.methods = newType.methods().toMutableList()
         this.accessFlags = newType.accessFlags().toMutableList()
         this.attributes = newType.attributes().toMutableList()
-        this.typeParameters = newType.typeParameters().getOrNull()?.toMutableList()
-        this.typeArguments = newType.typeArguments().getOrNull()?.toMutableList()
+        this.typeParameters = newType.typeParameters().toMutableList()
+        this.typeArguments = newType.typeArguments().toMutableList()
+    }
+
+    override fun toString(): String {
+        return toUsageString()
     }
 }
 
@@ -142,15 +148,19 @@ data class ExtensionType(
 ) {
     override fun className(): String = extendedType.className()
     override fun pkg(): String = extendedType.pkg()
-    override fun superClass(): Type = extendedType.superClass()
-    override fun interfaces(): Optional<Array<out Type>> = extendedType.interfaces()
+    override fun superClass(): Type? = extendedType.superClass()
+    override fun interfaces(): Array<out Type> = extendedType.interfaces()
     override fun fields(): Array<out Field> = extendedType.fields()
     override fun methods(): Array<out Method> = extendedType.methods()
     override fun accessFlags(): Array<out AccessFlag> = extendedType.accessFlags()
     override fun attributes(): Array<out Attribute> = extendedType.attributes()
-    override fun typeParameters(): Optional<Array<out TypeParameter>> = extendedType.typeParameters()
-    override fun typeArguments(): Optional<Array<out TypeArgument>> = extendedType.typeArguments()
+    override fun typeParameters(): Array<out TypeParameter> = extendedType.typeParameters()
+    override fun typeArguments(): Array<out TypeArgument> = extendedType.typeArguments()
     override fun isPrimitive(): Boolean = extendedType.isPrimitive
+
+    override fun toString(): String {
+        return toUsageString()
+    }
 }
 
 data class MutableArrayType<T : Type> (
@@ -160,13 +170,13 @@ data class MutableArrayType<T : Type> (
     componentType.className(),
     componentType.pkg(),
     componentType.superClass(),
-    componentType.interfaces().orElse(arrayOf()).toMutableList(),
+    componentType.interfaces().toMutableList(),
     componentType.fields().toMutableList(),
     componentType.methods().toMutableList(),
     componentType.accessFlags().toMutableList(),
     componentType.attributes().toMutableList(),
-    componentType.typeParameters().orElse(arrayOf()).toMutableList(),
-    componentType.typeArguments().orElse(arrayOf()).toMutableList()
+    componentType.typeParameters().toMutableList(),
+    componentType.typeArguments().toMutableList()
 ), ArrayType<T> {
     override fun componentType(): T = componentType
 
@@ -182,6 +192,10 @@ data class MutableArrayType<T : Type> (
     override fun fields(): Array<out Field> = super<ArrayType>.fields()
 
     override fun methods(): Array<out Method> = super<ArrayType>.methods()
+
+    override fun toString(): String {
+        return toUsageString()
+    }
 }
 
 data class MutableMethod (
@@ -191,8 +205,8 @@ data class MutableMethod (
     var parameters: MutableList<Parameter> = mutableListOf(),
     var exceptions: MutableList<Type> = mutableListOf(),
     var accessFlags: MutableList<AccessFlag> = mutableListOf(),
-    var typeParameters: MutableList<TypeParameter>? = mutableListOf(),
-    var typeArguments: MutableList<TypeArgument>? = mutableListOf(),
+    var typeParameters: MutableList<TypeParameter> = mutableListOf(),
+    var typeArguments: MutableList<TypeArgument> = mutableListOf(),
     var attributes: MutableList<Attribute> = mutableListOf()
 ) : Method {
     override fun owner(): Type = owner
@@ -201,8 +215,8 @@ data class MutableMethod (
     override fun exceptions(): Array<out Type> = exceptions.toTypedArray()
     override fun name(): String = name
     override fun accessFlags(): Array<out AccessFlag> = accessFlags.toTypedArray()
-    override fun typeParameters(): Optional<Array<out TypeParameter>> = Optional.ofNullable(typeParameters?.toTypedArray())
-    override fun typeArguments(): Optional<Array<out TypeArgument>> = Optional.ofNullable(typeArguments?.toTypedArray())
+    override fun typeParameters(): Array<out TypeParameter> = typeParameters.toTypedArray()
+    override fun typeArguments(): Array<out TypeArgument> = typeArguments.toTypedArray()
     override fun attributes(): Array<out Attribute> = attributes.toTypedArray()
 
     override fun withTypeArguments(typeArguments: Array<out TypeArgument>): Method {
@@ -235,8 +249,8 @@ data class MutableMethod (
         this.parameters = newMethod.parameters().toMutableList()
         this.exceptions = newMethod.exceptions().toMutableList()
         this.accessFlags = newMethod.accessFlags().toMutableList()
-        this.typeParameters = newMethod.typeParameters().getOrNull()?.toMutableList()
-        this.typeArguments = newMethod.typeArguments().getOrNull()?.toMutableList()
+        this.typeParameters = newMethod.typeParameters().toMutableList()
+        this.typeArguments = newMethod.typeArguments().toMutableList()
         this.attributes = newMethod.attributes().toMutableList()
     }
 
@@ -267,13 +281,13 @@ data class MutableUnionType (
     override fun className(): String = super<UnionType>.className()
     override fun pkg(): String = super<UnionType>.pkg()
     override fun superClass(): Type = super<UnionType>.superClass()
-    override fun interfaces(): Optional<Array<out Type>> = super<UnionType>.interfaces()
+    override fun interfaces(): Array<out Type> = super<UnionType>.interfaces()
     override fun fields(): Array<out Field> = super<UnionType>.fields()
     override fun methods(): Array<out Method> = super<UnionType>.methods()
     override fun accessFlags(): Array<out AccessFlag> = super<UnionType>.accessFlags()
     override fun attributes(): Array<out Attribute> = super<UnionType>.attributes()
-    override fun typeParameters(): Optional<Array<out TypeParameter>> = super<UnionType>.typeParameters()
-    override fun typeArguments(): Optional<Array<out TypeArgument>> = super<UnionType>.typeArguments()
+    override fun typeParameters(): Array<out TypeParameter> = super<UnionType>.typeParameters()
+    override fun typeArguments(): Array<out TypeArgument> = super<UnionType>.typeArguments()
     override fun isPrimitive(): Boolean = super<UnionType>.isPrimitive()
     override fun types(): Array<out Type> = types.toTypedArray()
 
@@ -288,6 +302,10 @@ data class MutableUnionType (
     override fun withDefaultTypeArguments(): UnionType {
         return this // TODO
     }
+
+    override fun toString(): String {
+        return toUsageString()
+    }
 }
 
 
@@ -297,13 +315,13 @@ data class MutableIntersectionType (
     override fun className(): String = super<IntersectionType>.className()
     override fun pkg(): String = super<IntersectionType>.pkg()
     override fun superClass(): Type = super<IntersectionType>.superClass()
-    override fun interfaces(): Optional<Array<out Type>> = super<IntersectionType>.interfaces()
+    override fun interfaces(): Array<out Type> = super<IntersectionType>.interfaces()
     override fun fields(): Array<out Field> = super<IntersectionType>.fields()
     override fun methods(): Array<out Method> = super<IntersectionType>.methods()
     override fun accessFlags(): Array<out AccessFlag> = super<IntersectionType>.accessFlags()
     override fun attributes(): Array<out Attribute> = super<IntersectionType>.attributes()
-    override fun typeParameters(): Optional<Array<out TypeParameter>> = super<IntersectionType>.typeParameters()
-    override fun typeArguments(): Optional<Array<out TypeArgument>> = super<IntersectionType>.typeArguments()
+    override fun typeParameters(): Array<out TypeParameter> = super<IntersectionType>.typeParameters()
+    override fun typeArguments(): Array<out TypeArgument> = super<IntersectionType>.typeArguments()
     override fun isPrimitive(): Boolean = super<IntersectionType>.isPrimitive()
     override fun types(): Array<out Type> = types.toTypedArray()
 
@@ -317,6 +335,10 @@ data class MutableIntersectionType (
 
     override fun withDefaultTypeArguments(): IntersectionType {
         return this // TODO
+    }
+
+    override fun toString(): String {
+        return toUsageString()
     }
 }
 
@@ -340,8 +362,8 @@ fun Method.toMutable(): MutableMethod {
         this.parameters().toMutableList(),
         this.exceptions().toMutableList(),
         this.accessFlags().toMutableList(),
-        this.typeParameters().orElse(Utils.EMPTY_TYPE_PARAMETERS).toMutableList(),
-        this.typeArguments().orElse(Utils.EMPTY_TYPE_ARGUMENTS).toMutableList(),
+        this.typeParameters().toMutableList(),
+        this.typeArguments().toMutableList(),
         this.attributes().toMutableList()
     )
 }
@@ -351,13 +373,13 @@ fun Type.toMutable(): MutableType {
         this.className(),
         this.pkg(),
         this.superClass(),
-        this.interfaces().orElse(null)?.toMutableList(),
+        this.interfaces().toMutableList(),
         this.fields().toMutableList(),
         this.methods().toMutableList(),
         this.accessFlags().toMutableList(),
         this.attributes().toMutableList(),
-        this.typeParameters().orElse(Utils.EMPTY_TYPE_PARAMETERS).toMutableList(),
-        this.typeArguments().orElse(Utils.EMPTY_TYPE_ARGUMENTS).toMutableList(),
+        this.typeParameters().toMutableList(),
+        this.typeArguments().toMutableList(),
         this.isPrimitive
     )
 }
@@ -399,8 +421,8 @@ fun MutableMethod.toImmutable(): Method {
         this.parameters.toTypedArray(),
         this.exceptions.toTypedArray(),
         this.accessFlags.toTypedArray(),
-        Optional.ofNullable(this.typeParameters?.toTypedArray()),
-        Optional.ofNullable(this.typeArguments?.toTypedArray()),
+        this.typeParameters.toTypedArray(),
+        this.typeArguments.toTypedArray(),
         this.attributes.toTypedArray(),
     )
 }
@@ -410,18 +432,18 @@ fun MutableType.toImmutable(): Type {
         return PrimitiveTypeImpl.entries.find { it.name.equals(this.className, ignoreCase = true) }!!
     }
 
-    return TypeImpl(
+    return TypePool.add(TypeImpl(
         this.className,
         this.pkg,
         this.superClass,
-        Optional.ofNullable(this.interfaces?.toTypedArray()),
+        this.interfaces.toTypedArray(),
         this.fields.toTypedArray(),
         this.methods.toTypedArray(),
         this.accessFlags.toTypedArray(),
         this.attributes.toTypedArray(),
-        Optional.ofNullable(this.typeParameters?.toTypedArray()),
-        Optional.ofNullable(this.typeArguments?.toTypedArray()),
-    )
+        this.typeParameters.toTypedArray(),
+        this.typeArguments.toTypedArray(),
+    ))
 }
 
 fun MutableUnionType.toImmutable(): UnionType {
@@ -449,7 +471,7 @@ fun fnType(returnType: Type, parameterTypes: List<Type>): Type {
         TypeParameterImpl("R", objectType)
     ) else mutableListOf()
     val typeArguments: MutableList<TypeArgument> = if (returnType != Types.VOID) mutableListOf(
-        TypeArgumentImpl("R", objectType)
+        TypeArgumentImpl("R", returnType)
     ) else mutableListOf()
 
     parameterTypes.forEachIndexed { i, it ->
