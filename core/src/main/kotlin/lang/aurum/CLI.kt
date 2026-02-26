@@ -143,7 +143,9 @@ class CLI<T : Any>(
     private fun parseCommands(
         paramNames: List<String>
     ) {
-        target::class.java.declaredFields.filter { it.type.annotations.any { a -> a is Command} }
+        target::class.java.declaredFields.filter { it.type.annotations.any { a -> a is Command }
+                && !Modifier.isStatic(it.modifiers)
+                && !Modifier.isPrivate(it.modifiers) }
             .forEach {
                 val command = it.type.annotations.find{ a -> a is Command } as Command
                 val indexOfFirst = args.indexOfFirst { s -> s in command.names }
@@ -153,7 +155,8 @@ class CLI<T : Any>(
 
                 val newTarget = (it.type as Class<*>).getConstructor().newInstance()
 
-                parseArgs()
+                CLI(newTarget, *args.subList(indexOfFirst1, endIndex).toTypedArray().clone())
+                    .parseArgs()
 
                 if (Modifier.isFinal(it.modifiers))
                     throw IllegalStateException("todo")
