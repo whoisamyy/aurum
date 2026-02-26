@@ -32,6 +32,7 @@ class ClassesResolutionStage(parsingContext: ParsingContext) : ParsingStage(pars
                     is AurumParser.InterfaceDeclContext -> {
                         val accessFlags = decl.modifier()?.toAccessFlags() ?: mutableListOf()
                         accessFlags += AccessFlag.INTERFACE
+                        accessFlags += AccessFlag.ABSTRACT
                         context.classes += MutableTypePool.get(
                             decl.Identifier().text,
                             context.pkg,
