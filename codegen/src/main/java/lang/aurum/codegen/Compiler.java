@@ -14,7 +14,6 @@ public interface Compiler {
     boolean compile(Path output) throws IOException;
 
     static Compiler get(Type type, ConstantPool constantPool, Target target) {
-        //noinspection SwitchStatementWithTooFewBranches
         return switch (target) {
             case JVM -> new JVMCompiler(type, constantPool);
             case IR -> new Compiler() {
