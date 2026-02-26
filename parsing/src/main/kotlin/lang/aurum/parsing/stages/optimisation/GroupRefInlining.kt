@@ -208,7 +208,7 @@ object GroupRefInlining : OptimizationPass {
                         
                         if (objMethodSource != null && method is SingleMethodRef) {
                             if (isMethodInGroup(method, objMethodSource.originalMethod)) {
-                                                                instructions[i] = inst.copy(
+                                instructions[i] = inst.copy(
                                     obj = objMethodSource.originalObj,
                                     method = method
                                 )
