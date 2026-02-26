@@ -19,7 +19,7 @@ class DependenciesResolutionStage(parsingContext: ParsingContext) : ParsingStage
                 fileContext.importMap += id.text to it.qualifiedName().text
             } else {
                 fileContext.importMap += Symbol(
-                    it.qualifiedName().Identifier().dropLast(1).joinToString(".") { id -> id.text },
+                    it.qualifiedName().Identifier().joinToString(".") { id -> id.text },
                     it.qualifiedName().Identifier().last().text
                 )
             }
