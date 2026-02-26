@@ -239,7 +239,11 @@ class StatementProcessor (
             val expr = compiler.expressionProcessor.processExpression(it)
             if (!expr.type.isSubclassOf(method.returnType())) {
                 if (!method.attributes().contains<LambdaMethodAttribute>())
-                    throw IllegalStateException("todo")
+                    throwAurumError(
+                        "Wrong return type. Expected ${method.returnType().toUsageString()}, got ${expr.type.toUsageString()}",
+                        ctx,
+                        compiler.fileContext
+                    )
 
                 method as MutableMethod
                 if (method.returnType == Types.VOID)
@@ -365,11 +369,11 @@ class StatementProcessor (
         val hasNextMethod = iteratorType.findMethod("hasNext").get()
         val varType = iteratorType
             .typeArguments()
-            .orElse(
+            .ifEmpty {
                 iteratorType.allInterfaces.find { it.fullName() == "java.util.Iterator" }
                     ?.typeArguments()
-                    ?.getOrNull() ?: Utils.EMPTY_TYPE_ARGUMENTS
-            ).ifEmpty {
+                    ?: Utils.EMPTY_TYPE_ARGUMENTS
+            }.ifEmpty {
                 val typeCtx = ctx.varId(0).typeExpr()
                 if (typeCtx != null)
                     arrayOf(TypeArgument.of("E", compiler.toType(typeCtx)))
