@@ -128,8 +128,8 @@ class ByteIrFileWriter (
         out.writeInt(intFlags())
         out.writeBytes("class ${toUsageString()}")
 
-        out.writeBytes(":${superClass().toUsageString()}")
-        interfaces().ifPresent {
+        out.writeBytes(":${superClass()?.toUsageString() ?: ""}")
+        interfaces().let {
             out.writeBytes(",")
             out.writeBytes(it.joinToString(",") { t -> t.toUsageString() })
         }
@@ -160,7 +160,7 @@ class ByteIrFileWriter (
         if (this !is MutableMethod) return
 
         out.writeBytes("fn ")
-        typeParameters().ifPresent { params ->
+        typeParameters().let { params ->
             if (params.isNotEmpty())
                 out.writeBytes(params.joinToString(",", prefix = "<", postfix = ">") {
                     "${it.name()}:${it.bound().toUsageString()}"

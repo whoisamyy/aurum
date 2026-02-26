@@ -126,10 +126,10 @@ class VerboseIrFileWriter (
             out.writeBytes(accessFlags().joinToString(" ", postfix = " ") { it.name })
         out.writeBytes("class ${toUsageString()}")
 
-        if (typeArguments().isEmpty) {
-            typeParameters().ifPresent { params ->
+        if (typeArguments().isEmpty()) {
+            typeParameters().let { params ->
                 if (params.size == 0)
-                    return@ifPresent
+                    return@let
                 out.writeBytes(
                     params.joinToString(", ", prefix = "<", postfix = "> ") {
                         "${it.name()}:${it.bound().toUsageString()}"
@@ -140,19 +140,19 @@ class VerboseIrFileWriter (
 //            out.writeBytes(typeArguments().get().joinToString {
 //                it.bound().toUsageString()
 //            })
-            typeParameters().ifPresent {
+            typeParameters().let {
                 out.writeBytes(it.clone().filter { param ->
-                    typeArguments().get().any { arg -> arg.name().equals(param.name()) }
+                    typeArguments().any { arg -> arg.name().equals(param.name()) }
                 }.joinToString(", ", prefix = "<", postfix = "> ") { param ->
                     "${param.name()}:${param.bound().toUsageString()}"
                 })
             }
         }
 
-        out.writeBytes(": ${superClass().toUsageString()}")
-        interfaces().ifPresent {
+        out.writeBytes(": ${superClass()?.toUsageString() ?: ""}")
+        interfaces().let {
             if (it.size == 0)
-                return@ifPresent
+                return@let
             out.writeBytes(", ")
             out.writeBytes(it.joinToString(", ") { inter -> inter.toUsageString()})
         }
@@ -189,9 +189,9 @@ class VerboseIrFileWriter (
 
         out.writeBytes("fn ")
 
-        typeParameters().ifPresent { params ->
+        typeParameters().let { params ->
             if (params.isEmpty())
-                return@ifPresent
+                return@let
             out.writeBytes(params.joinToString(",", prefix = " <", postfix = "> ") {
                 "${it.name()}:${it.bound().toUsageString()}"
             })
