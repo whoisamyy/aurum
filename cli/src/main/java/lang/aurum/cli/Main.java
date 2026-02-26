@@ -31,8 +31,8 @@ public class Main {
             OptimisationLevel.O2.class,
             OptimisationLevel.O3.class,
             OptimisationLevel.ORAW.class,
-            Target.class,
             OptimisationLevel.Custom.class,
+            Target.class,
             SourcesArgument.class,
     })
     public Set<Argument> arguments;
