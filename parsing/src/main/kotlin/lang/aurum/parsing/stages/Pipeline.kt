@@ -32,16 +32,28 @@ data class Pipeline (
 
             val line = e.line
             val column = e.column
-            val lineContent = fileContent[e.line!! - 1]
-            val repeatCount = e.column!! + 1 + line.toString().length
+            var errorLines: String = ""
+            if (line != null && column != null) {
+                val repeatCount = column + line.toString().length
+                val lineContent = fileContent[e.line - 1]
+                val carets = "^".repeat(lineContent.length-repeatCount+line.toString().length+1)
+
+                val dashes = "-".repeat(repeatCount)
+
+                errorLines = """
+                    |$line $lineContent
+                    |$dashes$carets
+                """.trimMargin()
+            }
+            val positionString = if (line != null && column != null) "$line:$column" else ""
+            @Suppress("SENSELESS_COMPARISON") // it is not senseless
             println("""
-                ERROR: ${e.filePath}:$line:$column
-                
-                $line $lineContent
-                |${"-".repeat(repeatCount-1)}${"^".repeat(Math.clamp((lineContent.length - repeatCount + 2).toLong(), 1, Int.MAX_VALUE))}
-                
-                ${e.filePath ?: ""}:$line:$column : ${e.message}
-            """.trimIndent())
+                |ERROR: ${e.filePath}:$positionString
+                |
+                |$errorLines
+                |
+                |${e.filePath ?: ""}:$positionString : ${e.message}
+            """.trimMargin())
 
             if (Arguments.contains<ParserArgument.PrintStackTrace>())
                 e.printStackTrace(System.err)
