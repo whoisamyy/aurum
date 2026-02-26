@@ -2,12 +2,16 @@ package lang.aurum.codegen.jvm;
 
 import kotlin.Pair;
 import lang.aurum.attribute.ExtensionAttribute;
+import lang.aurum.attribute.LambdaMethodAttribute;
 import lang.aurum.codegen.jvm.util.Utils;
 import lang.aurum.ir.*;
 import lang.aurum.ir.Instruction;
 import lang.aurum.model.*;
+import lang.aurum.model.Attribute;
+import lang.aurum.parsing.AurumErrorKt;
 import lang.aurum.parsing.attribute.AttributeExtensionsKt;
 import lang.aurum.parsing.model.MutableModelsKt;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.lang.classfile.*;
@@ -17,6 +21,7 @@ import java.lang.classfile.instruction.ConvertInstruction;
 import java.lang.classfile.instruction.OperatorInstruction;
 import java.lang.constant.*;
 import java.lang.invoke.LambdaMetafactory;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.function.Consumer;
 
@@ -52,7 +57,9 @@ public class Translator implements Consumer<CodeBuilder> {
     }
 
     private void translate() {
-        for (Instruction inst : instructions) {
+        for (int j = 0; j < instructions.size(); j++) {
+            Instruction inst = instructions.get(j);
+            int finalJ = j;
             switch (inst) {
                 case Null null_ -> {
                     codeBuilder.aconst_null();
@@ -72,7 +79,8 @@ public class Translator implements Consumer<CodeBuilder> {
                     var type = resolveRValue(neg.getRef());
                     // Neg instruction handles arithmetic negation (unary minus)
                     switch (type.typeKind()) {
-                        case BOOLEAN -> codeBuilder.ifThenElse(Opcode.IFEQ, CodeBuilder::iconst_1, CodeBuilder::iconst_0);
+                        case BOOLEAN ->
+                                codeBuilder.ifThenElse(Opcode.IFEQ, CodeBuilder::iconst_1, CodeBuilder::iconst_0);
                         case INT -> codeBuilder.with(OperatorInstruction.of(Opcode.INEG));
                         case LONG -> codeBuilder.with(OperatorInstruction.of(Opcode.LNEG));
                         case FLOAT -> codeBuilder.with(OperatorInstruction.of(Opcode.FNEG));
@@ -162,7 +170,25 @@ public class Translator implements Consumer<CodeBuilder> {
                     var objType = resolveRValue(invokeConstructor.getObj());
                     var argTypes = invokeConstructor.getArgs().stream().map(this::resolveRValue).toList();
 
-                    var constructorMethod = objType.findMethod("<init>", argTypes.toArray(Type[]::new)).orElseThrow();
+                    var constructorMethod = objType.findMethod("<init>", argTypes.toArray(Type[]::new))
+                                                   .orElseThrow(() ->
+                                                           AurumErrorKt.aurumError(
+                                                                   "Couldn't find method %s<init>(%s)"
+                                                                           .formatted(
+                                                                                   objType.toUsageString(),
+                                                                                   String.join(
+                                                                                           ", ",
+                                                                                           argTypes.stream()
+                                                                                                   .map(Type::toUsageString)
+                                                                                                   .toList()
+                                                                                   )
+                                                                           ),
+                                                                   "%d:%d"
+                                                                           .formatted(finalJ, -1),
+                                                                   (Path) null
+                                                           )
+                                                   );
+
                     codeBuilder.invokespecial(Utils.classDescOf(objType), "<init>", Utils.methodTypeDescOf(constructorMethod));
                 }
                 case Closure closure -> {
@@ -207,8 +233,18 @@ public class Translator implements Consumer<CodeBuilder> {
                     throw new UnsupportedOperationException("GetMember not yet supported");
                 }
                 case GetMethod getMethod -> {
-                    // Method reference will be implemented later
-                    throw new UnsupportedOperationException("GetMethod not yet supported");
+//                    getMethod.getObj();
+
+//                    var methodRef = getMethod.getMethod();
+//                    Method method = constantPool.dereference(((SingleMethodRef) methodRef));
+
+//                    if (!method.isStatic())
+//                        resolveRValue(Reference.This.INSTANCE);
+//                    loadMethodRef(method);
+
+                    // This is bad
+                    Method actual = constantPool.dereference(((SingleMethodRef) getMethod.getMethod()));
+                    loadMethodRef(actual);
                 }
                 case GetMethodStatic getMethodStatic -> {
                     // Static method reference will be implemented later
@@ -287,15 +323,21 @@ public class Translator implements Consumer<CodeBuilder> {
         }
     }
 
+    // todo: make usable for other functional types
     private void loadMethodRef(Method method) {
-    // 1. Это тип интерфейса (например, aurum.lang.Fn0)
-        ClassDesc interfaceDesc = Utils.classDescOf(MutableModelsKt.getType(method));
+        Type methodFnType;
+        @NotNull Attribute[] attributes = method.attributes();
+        if (AttributeExtensionsKt.contains(attributes, LambdaMethodAttribute.class)) {
+            // check was already done
+            //noinspection DataFlowIssue
+            methodFnType = AttributeExtensionsKt.get(attributes, LambdaMethodAttribute.class).getFunctionalInterface();
+        } else
+            methodFnType = MutableModelsKt.getType(method);
 
-        // 2. Это тип, который возвращает ИНДИ (объект интерфейса)
+        ClassDesc interfaceDesc = Utils.classDescOf(methodFnType);
+
         MethodTypeDesc indyReturnType = MethodTypeDesc.of(interfaceDesc);
 
-        // 3. Это сигнатура метода ВНУТРИ интерфейса и вашего целевого метода
-        // Если метод Fn0.invoke() ничего не принимает и не возвращает, это ()V
         MethodTypeDesc methodSig = Utils.methodTypeDescOf(method);
 
         var bsm = MethodHandleDesc.ofMethod(
@@ -308,26 +350,35 @@ public class Translator implements Consumer<CodeBuilder> {
         );
 
         DirectMethodHandleDesc target = MethodHandleDesc.ofMethod(
-                method.isStatic() ? DirectMethodHandleDesc.Kind.STATIC : DirectMethodHandleDesc.Kind.VIRTUAL, // Используйте VIRTUAL для обычных методов
+                method.isStatic() ? DirectMethodHandleDesc.Kind.STATIC : DirectMethodHandleDesc.Kind.VIRTUAL,
                 Utils.classDescOf(method.owner()),
                 method.name(),
                 methodSig
         );
 
+        MethodTypeDesc actualMethodDesc = Utils.methodTypeDescOf(
+                Arrays.stream(methodFnType
+                      .withDefaultTypeArguments()
+                      .methods())
+                      .filter(Accessible::isAbstract)
+                      .findFirst()
+                      .orElseThrow()
+        );
+
         DynamicCallSiteDesc callSite = DynamicCallSiteDesc.of(
                 bsm,
-                "invoke",        // Имя метода в интерфейсе Fn0
-                indyReturnType,  // Возвращаемый тип для инструкции indy: ()LFn0;
-                methodSig,       // samMethodType: ()V (если метод void)
-                target,          // Ссылка на реализацию
-                methodSig        // instantiatedMethodType: ()V
+                "invoke",
+                indyReturnType,
+                actualMethodDesc,
+                target,
+                methodSig
         );
 
         codeBuilder.invokedynamic(callSite);
     }
 
     private void generateBootstrapMethod(Method lambdaDelegate) {
-
+        // todo
     }
 
     private Type getArrayElementType(Type arrayType) {
@@ -632,7 +683,9 @@ public class Translator implements Consumer<CodeBuilder> {
                         return MutableModelsKt.getType(m);
                     }
                     case Field f -> {
-                        codeBuilder.getstatic(Utils.classDescOf(f.owner()), f.name(), Utils.classDescOf(f.type()));
+                        if (f.isStatic())
+                            codeBuilder.getstatic(Utils.classDescOf(f.owner()), f.name(), Utils.classDescOf(f.type()));
+                        else throw new IllegalStateException("Cannot reference non-static member from static context");
                         return f.type();
                     }
                     case Type t -> {
