@@ -4,24 +4,20 @@ import lang.aurum.codegen.Compiler;
 import lang.aurum.codegen.jvm.util.Utils;
 import lang.aurum.ir.CodeAttribute;
 import lang.aurum.ir.ConstantPool;
-import lang.aurum.model.Field;
-import lang.aurum.model.Method;
-import lang.aurum.model.Type;
+import lang.aurum.model.*;
 import lang.aurum.parsing.AurumErrorKt;
 import lang.aurum.parsing.attribute.AttributeExtensionsKt;
 import lang.aurum.parsing.model.MutableMethod;
 
 import java.io.IOException;
 import java.lang.classfile.*;
+import java.lang.classfile.attribute.SignatureAttribute;
 import java.lang.classfile.instruction.LoadInstruction;
 import java.lang.classfile.instruction.StackInstruction;
 import java.lang.classfile.instruction.StoreInstruction;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public record JVMCompiler(Type type, ConstantPool constantPool) implements Compiler {
     @Override
@@ -30,12 +26,14 @@ public record JVMCompiler(Type type, ConstantPool constantPool) implements Compi
         var clazz = cf
                  .build(Utils.classDescOf(type), cb -> {
                      cb.withFlags(type.intFlags());
-                     cb.withSuperclass(Utils.classDescOf(type.superClass()));
-                     type.interfaces()
-                         .map(interfaces -> Arrays.stream(interfaces)
-                                                  .map(Utils::classDescOf)
-                                                  .toList())
-                         .ifPresent(cb::withInterfaceSymbols);
+                     cb.with(SignatureAttribute.of(getClassTypeSig(type)));
+                     if (type.superClass() != null)
+                         //noinspection DataFlowIssue since it is already checked at line 30
+                         cb.withSuperclass(Utils.classDescOf(type.superClass()));
+
+                     Arrays.stream(type.interfaces())
+                           .map(Utils::classDescOf)
+                           .forEach(cb::withInterfaceSymbols);
 
                      for (Field field : type.fields()) {
                          cb.withField(
@@ -45,7 +43,14 @@ public record JVMCompiler(Type type, ConstantPool constantPool) implements Compi
                          );
                      }
 
-                     for (Method method : type.methods()) {
+                     for (Method method : Arrays.stream(type.methods())
+                                                .filter(m -> m.owner().equals(type))
+                                                .toList()) {
+                         if (Arrays.stream(type.methods())
+                               .anyMatch(m -> m.signature().equals(method.signature()) && !m.isAbstract())
+                                && method.isAbstract())
+                             continue;
+
                          if (!(method instanceof MutableMethod))
                              continue;
 
@@ -75,7 +80,7 @@ public record JVMCompiler(Type type, ConstantPool constantPool) implements Compi
         // kinda temporary solution, but it works
         clazz = cleanup(cf, cf.parse(clazz));
 
-//        verifyBytecode(output, cf, clazz);
+        verifyBytecode(output, cf, clazz);
 
         Files.write(output, clazz);
         return true;
@@ -91,9 +96,61 @@ public record JVMCompiler(Type type, ConstantPool constantPool) implements Compi
             );
     }
 
+    private static Signature.ClassTypeSig convertToSignature(Type type) {
+        switch (type) {
+            case IntersectionType it -> {
+                return Signature.ClassTypeSig.of(
+                        Utils.classDescOf(it.superClass()),
+                        Arrays.stream(type.typeArguments())
+                              .map(ta -> Signature.TypeArg.of(convertToSignature(ta.bound())))
+                              .toArray(Signature.TypeArg[]::new)
+                );
+            }
+
+            case UnionType ut -> {
+                return Signature.ClassTypeSig.of(
+                        Utils.classDescOf(ut.superClass()),
+                        Arrays.stream(type.typeArguments())
+                              .map(ta -> Signature.TypeArg.of(convertToSignature(ta.bound())))
+                              .toArray(Signature.TypeArg[]::new)
+                );
+            }
+
+            case Type t -> {
+                return Signature.ClassTypeSig.of(
+                        Utils.classDescOf(t),
+                        Arrays.stream(type.typeArguments())
+                              .map(ta -> Signature.TypeArg.of(convertToSignature(ta.bound())))
+                              .toArray(Signature.TypeArg[]::new)
+                );
+            }
+        }
+    }
+
+    private static ClassSignature getClassTypeSig(Type type) {
+        return ClassSignature.of(
+                Arrays.stream(type.typeParameters())
+                      .map(tp ->
+                              Signature.TypeParam.of(tp.name(), convertToSignature(tp.bound()))
+                      )
+                      .toList(),
+                convertToSignature(Optional.ofNullable(type.superClass()).orElse(Types.OBJECT)),
+                Arrays.stream(type.interfaces())
+                                                  .map(JVMCompiler::convertToSignature)
+                                                  .toArray(Signature.ClassTypeSig[]::new)
+        );
+    }
+
     private byte[] cleanup(ClassFile cf, ClassModel model) {
         return cf.transformClass(model, (classBuilder, el) -> {
             classBuilder.withFlags(type.intFlags());
+            if (type.superClass() != null)
+                classBuilder.withSuperclass(Utils.classDescOf(type.superClass()));
+
+            Arrays.stream(type.interfaces())
+                  .map(Utils::classDescOf)
+                  .forEach(classBuilder::withInterfaceSymbols);
+
             if (el instanceof MethodModel method) {
                 var locals = getLocalUsages(method);
 
@@ -138,6 +195,8 @@ public record JVMCompiler(Type type, ConstantPool constantPool) implements Compi
                             });
                         }
                 );
+            } else {
+                classBuilder.with(el);
             }
         });
     }
