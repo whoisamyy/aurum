@@ -26,7 +26,8 @@ class DataTracker(compiler: IRCompiler) {
     operator fun get(variable: String): TargetRef? {
         val newVariable = when (variable) {
             "_" -> Reference.Empty
-            "this", "super" -> throw IllegalStateException("todo")
+            "this" -> Reference.This
+            "super" -> Reference.Super
             else -> Reference.Named(variable)
         }
 
