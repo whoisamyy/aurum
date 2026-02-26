@@ -4,4 +4,9 @@ import org.jetbrains.annotations.NotNull;
 
 public interface Field extends Member {
     @NotNull Type type();
+
+    @Override
+    default @NotNull Field asDefaultTypedMember() {
+        return owner().withDefaultTypeArguments().findField(name()).orElseThrow();
+    }
 }

@@ -9,7 +9,6 @@ import java.lang.reflect.AccessFlag;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.Optional;
 
 public interface UnionType extends Type {
     Type[] types();
@@ -38,22 +37,19 @@ public interface UnionType extends Type {
         return "";
     }
 
-    @NotNull
     @Override
-    default Optional<Type[]> interfaces() {
-        return Optional.empty();
+    default @NotNull Type @NotNull [] interfaces() {
+        return Utils.EMPTY_TYPES;
     }
 
-    @NotNull
     @Override
-    default Optional<TypeParameter[]> typeParameters() {
-        return Optional.empty();
+    default @NotNull TypeParameter @NotNull [] typeParameters() {
+        return Utils.EMPTY_TYPE_PARAMETERS;
     }
 
-    @NotNull
     @Override
-    default Optional<TypeArgument[]> typeArguments() {
-        return Optional.empty();
+    default @NotNull TypeArgument @NotNull [] typeArguments() {
+        return Utils.EMPTY_TYPE_ARGUMENTS;
     }
 
     @Override

@@ -1,6 +1,7 @@
 package lang.aurum.model;
 
 import lang.aurum.model.impl.FieldImpl;
+import lang.aurum.model.impl.MethodImpl;
 import lang.aurum.model.impl.Utils;
 import org.jetbrains.annotations.NotNull;
 
@@ -37,7 +38,23 @@ public interface ArrayType<T extends Type> extends Type {
 
     @Override
     default @NotNull Method[] methods() {
-        return Types.OBJECT.methods();
+        var methods = new ArrayList<>(List.of(Types.OBJECT.methods()));
+        methods.removeIf(m -> m.name().equals("<init>"));
+        methods.add(
+                new MethodImpl(
+                        this,
+                        "<init>",
+                        this,
+                        Utils.DEFAULT_ARRAY_INIT_PARAMETERS,
+                        Utils.EMPTY_TYPES,
+                        Utils.DEFAULT_ACCESS_FLAGS,
+                        Utils.EMPTY_TYPE_PARAMETERS,
+                        Utils.EMPTY_TYPE_ARGUMENTS,
+                        Utils.EMPTY_ATTRIBUTES
+                )
+        );
+
+        return methods.toArray(Method[]::new);
     }
 
     @Override

@@ -4,7 +4,6 @@ import lang.aurum.model.impl.Utils;
 import org.jetbrains.annotations.NotNull;
 
 import java.lang.reflect.AccessFlag;
-import java.util.Optional;
 
 public interface PrimitiveType extends Type {
     String jvmName();
@@ -24,8 +23,8 @@ public interface PrimitiveType extends Type {
 
 
     @Override
-    default @NotNull Optional<@NotNull Type @NotNull []> interfaces() {
-        return Optional.empty();
+    default @NotNull Type @NotNull [] interfaces() {
+        return Utils.EMPTY_TYPES;
     }
 
     @Override
@@ -56,14 +55,14 @@ public interface PrimitiveType extends Type {
 
     @NotNull
     @Override
-    default Optional<TypeParameter[]> typeParameters() {
-        return Optional.empty();
+    default TypeParameter[] typeParameters() {
+        return Utils.EMPTY_TYPE_PARAMETERS;
     }
 
     @NotNull
     @Override
-    default Optional<TypeArgument[]> typeArguments() {
-        return Optional.empty();
+    default TypeArgument[] typeArguments() {
+        return Utils.EMPTY_TYPE_ARGUMENTS;
     }
 
     @Override
