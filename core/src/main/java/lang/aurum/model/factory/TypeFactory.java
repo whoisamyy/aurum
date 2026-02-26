@@ -1,9 +1,12 @@
 package lang.aurum.model.factory;
 
+import kotlin.Pair;
 import lang.aurum.model.*;
 import lang.aurum.model.impl.IntersectionTypeImpl;
 import lang.aurum.model.impl.PrimitiveTypeImpl;
 import lang.aurum.model.impl.TypeImpl;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.lang.reflect.AccessFlag;
 import java.lang.reflect.ParameterizedType;
@@ -12,6 +15,49 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 public final class TypeFactory {
+    public static class TypePool {
+        private TypePool() {}
+
+        private static final Map<Pair<String, @NotNull TypeArgument @NotNull []>, Type> pool = new HashMap<>();
+
+        public static boolean contains(String fullName, TypeArgument[] typeArguments) {
+            return pool.containsKey(new Pair<>(fullName, typeArguments));
+        }
+
+        public static boolean contains(String className, String pkg, TypeArgument[] typeArguments) {
+            return contains("%s.%s".formatted(pkg, className), typeArguments);
+        }
+
+        public static @Nullable Type get(String fullName) {
+            return pool.entrySet().stream()
+                       .filter(kv -> kv.getKey().getFirst().equals(fullName))
+                       .min(Comparator.comparingInt(kv -> kv.getKey().getSecond().length))
+                       .map(Map.Entry::getValue)
+                       .orElse(null);
+        }
+
+        public static @Nullable Type get(String className, String pkg) {
+            return get("%s.%s".formatted(pkg, className));
+        }
+
+        public static @Nullable Type get(String fullName, TypeArgument[] typeArgs) {
+            return pool.entrySet().stream()
+                       .filter(kv -> kv.getKey().getFirst().equals(fullName)
+                               && Arrays.equals(kv.getKey().getSecond(), typeArgs))
+                       .findFirst()
+                       .map(Map.Entry::getValue)
+                       .orElse(null);
+        }
+
+        public static @Nullable Type get(String className, String pkg, TypeArgument[] typeArgs) {
+            return get("%s.%s".formatted(pkg, className), typeArgs);
+        }
+
+        public static Type add(Type type) {
+            return pool.computeIfAbsent(new Pair<>(type.fullName(), type.typeArguments()), _ -> type);
+        }
+    }
+
     private static final Map<Class<?>, Type> cache = new HashMap<>();
     private static final Map<java.lang.reflect.Type, Type> cache1 = new HashMap<>();
     private static final Map<TypeReference<?>, Type> cache2 = new HashMap<>();
@@ -24,7 +70,7 @@ public final class TypeFactory {
             return cache.get(clazz);
 
         Class<?> arrayClass = clazz;
-        int arrayDimensions = (int) clazz.descriptorString().chars().filter(c -> c == '[').count();
+        int arrayDimensions = (int) arrayClass.descriptorString().chars().filter(c -> c == '[').count();
         clazz = Utils.getComponent(clazz);
         if (clazz.isPrimitive()) {
             Class<?> finalClazz = clazz;
@@ -43,9 +89,9 @@ public final class TypeFactory {
 
         Class<?>[] interfaces = clazz.getInterfaces();
 
-        Optional<Type[]> interfaceTypes = interfaces.length == 0
-                ? Optional.empty()
-                : Optional.of(new Type[interfaces.length]);
+        Type[] interfaceTypes = interfaces.length == 0
+                ? lang.aurum.model.impl.Utils.EMPTY_TYPES
+                : new Type[interfaces.length];
 
         TypeImpl type = new TypeImpl(
                 clazz.getName().substring(clazz.getName().lastIndexOf('.')+1),
@@ -57,7 +103,7 @@ public final class TypeFactory {
                 clazz.accessFlags().toArray(AccessFlag[]::new),
                 lang.aurum.model.impl.Utils.EMPTY_ATTRIBUTES,
                 Utils.getTypeParameters(clazz),
-                Optional.empty()
+                lang.aurum.model.impl.Utils.EMPTY_TYPE_ARGUMENTS
         );
 
         cache.put(arrayClass, type);
@@ -80,7 +126,7 @@ public final class TypeFactory {
         Type[] newInterfaces = Arrays.stream(interfaces)
               .map(TypeFactory::ofType)
               .toList().toArray(Type[]::new);
-        Type[] dest = type.interfaces().orElse(lang.aurum.model.impl.Utils.EMPTY_TYPES);
+        Type[] dest = type.interfaces();
         System.arraycopy(newInterfaces, 0, dest, 0, Integer.min(newInterfaces.length, dest.length));
 
         processMembers(clazz, type);
@@ -105,7 +151,7 @@ public final class TypeFactory {
             Utils.addAll(fields, superClass.fields());
         }
 
-        for (var inter : type.interfaces().orElse(lang.aurum.model.impl.Utils.EMPTY_TYPES)) {
+        for (var inter : type.interfaces()) {
             Utils.addAll(methods, inter.methods());
         }
 
@@ -180,7 +226,7 @@ public final class TypeFactory {
                     cache1.put(type, retType);
                     return retType;
                 } catch (ClassNotFoundException e) {
-                    Type retType = ofClass(Object.class);
+                    Type retType = ofClass(Object.class).asArray((int) type.getTypeName().chars().filter(c -> c == '[').count());
                     cache1.put(type, retType);
                     return retType;
                 }
@@ -197,25 +243,33 @@ public final class TypeFactory {
         if (cache3.containsKey(key))
             return cache3.get(key);
 
-        IntersectionTypeImpl type = new IntersectionTypeImpl(
-                new Type[types.length]
-        );
-        cache3.put(key, type);
+        if (types.length > 1) {
+            IntersectionTypeImpl type = new IntersectionTypeImpl(
+                    new Type[types.length]
+            );
+            cache3.put(key, type);
 
-        Arrays.stream(types)
-              .map(java.lang.reflect.Type::getTypeName)
-              .map(name -> name.replaceAll("<.*>", ""))
-              .map(className -> {
-                  try {
-                      return Class.forName(className);
-                  } catch (ClassNotFoundException e) {
-                      throw new RuntimeException(e);
-                  }
-              })
-              .map(TypeFactory::ofClass)
-              .toList().toArray(type.types());
+            Arrays.stream(types)
+                  .map(java.lang.reflect.Type::getTypeName)
+                  .map(name -> name.replaceAll("<.*>", ""))
+                  .map(className -> {
+                      try {
+                          return Class.forName(className);
+                      } catch (ClassNotFoundException e) {
+                          throw new RuntimeException(e);
+                      }
+                  })
+                  .map(TypeFactory::ofClass)
+                  .toList().toArray(type.types());
 
-        return type;
+            return type;
+        }
+
+        try {
+            return TypeFactory.ofClass(Class.forName(types[0].getTypeName().replaceAll("<.*>", "")));
+        } catch (ClassNotFoundException e) {
+            throw new RuntimeException(e);
+        }
     }
 
 }
