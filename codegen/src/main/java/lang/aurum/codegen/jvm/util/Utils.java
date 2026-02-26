@@ -15,17 +15,17 @@ public final class Utils {
     private Utils() {}
 
     public static ClassDesc classDescOf(Type type) {
-        if (type instanceof PrimitiveType primitive)
-            return ClassDesc.ofDescriptor(primitive.jvmName());
-
-        if (type instanceof ArrayType<?> arrayType) {
-            return ClassDesc.ofDescriptor("%sL%s;".formatted(
+        return switch (type) {
+            case PrimitiveType primitive -> ClassDesc.ofDescriptor(primitive.jvmName());
+            case UnionType ut -> classDescOf(ut.superClass());
+            case IntersectionType it -> classDescOf(it.types()[0]); // first type, later implement checkcasts
+            case ArrayType<?> arrayType -> ClassDesc.ofDescriptor("%sL%s;".formatted(
                     "[".repeat(arrayType.arrayDimensions()),
                     type.fullName().replace('.', '/')
             ));
-        }
+            default -> ClassDesc.ofDescriptor("L%s;".formatted(type.fullName().replace('.', '/')));
+        };
 
-        return ClassDesc.ofDescriptor("L%s;".formatted(type.fullName().replace('.', '/')));
     }
 
     public static ConstantPool constantPoolOf(lang.aurum.ir.ConstantPool cp) {
