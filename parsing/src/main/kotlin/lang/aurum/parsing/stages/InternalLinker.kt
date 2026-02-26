@@ -1,8 +1,9 @@
 package lang.aurum.parsing.stages
 
+import lang.aurum.model.IntersectionType
 import lang.aurum.model.Member
 import lang.aurum.model.Type
-import lang.aurum.model.impl.Utils
+import lang.aurum.model.UnionType
 import lang.aurum.parsing.model.MutableField
 import lang.aurum.parsing.model.MutableMethod
 import lang.aurum.parsing.model.MutableType
@@ -27,18 +28,36 @@ object InternalLinker : Linker() {
     override fun link(type: MutableType?, linkingContext: LinkingContext) {
         if (type == null)
             return
+
+        when (type) {
+            is UnionType -> {
+                for (t in type.types()) {
+                    t as? MutableType ?: continue
+                    this.link(t, linkingContext)
+                }
+                return
+            }
+            is IntersectionType -> {
+                for (t in type.types()) {
+                    t as? MutableType ?: continue
+                    this.link(t, linkingContext)
+                }
+                return
+            }
+        }
+
         val fullName = type.fullName()
         if (linkingContext.linkTable.containsKey(fullName)) {
             val t = linkingContext.linkTable[fullName]!!
 //        this.className = t.className()
 //        this.pkg = t.pkg()
             type.superClass = t.superClass()
-            type.interfaces = t.interfaces().orElse(null)?.toMutableList()
+            type.interfaces = t.interfaces().toMutableList()
             type.fields = t.fields().toMutableList()
             type.methods = t.methods().toMutableList()
             type.accessFlags = t.accessFlags().toMutableList()
             type.attributes = t.attributes().toMutableList()
-            type.typeParameters = t.typeParameters().orElse(Utils.EMPTY_TYPE_PARAMETERS).toMutableList()
+            type.typeParameters = t.typeParameters().toMutableList()
 //            type.typeArguments = t.typeArguments().orElse(Utils.EMPTY_TYPE_ARGUMENTS).toMutableList()
             type.primitive = t.isPrimitive
             return
@@ -53,7 +72,7 @@ object InternalLinker : Linker() {
 
         if (linkWithJvm(fullName, type, linkingContext)) return
 
-        type.interfaces?.find { !it.isInterface }?.let {
+        type.interfaces.find { !it.isInterface }?.let {
             type.superClass = it
         }
         linkingContext.linkTable[fullName] = type
@@ -78,18 +97,18 @@ object InternalLinker : Linker() {
     ): Boolean {
         try {
             val clazz = ClassLoader.getPlatformClassLoader().loadClass(fullName)
-            val t = Type.ofClass(clazz)
+            val t = Type.ofClass(clazz).withDefaultTypeArguments()
     //        this.className = t.className()
     //        this.pkg = t.pkg()
             type.superClass = t.superClass()
-            type.interfaces = t.interfaces().orElse(null)?.toMutableList()
+            type.interfaces = t.interfaces().toMutableList()
     //        this.arrayDimensions = t.arrayDimensions()
             type.fields = t.fields().toMutableList()
             type.methods = t.methods().toMutableList()
             type.accessFlags = t.accessFlags().toMutableList()
             type.attributes = t.attributes().toMutableList()
-            type.typeParameters = t.typeParameters().orElse(Utils.EMPTY_TYPE_PARAMETERS).toMutableList()
-            type.typeArguments = t.typeArguments().orElse(Utils.EMPTY_TYPE_ARGUMENTS).toMutableList()
+            type.typeParameters = t.typeParameters().toMutableList()
+            type.typeArguments = t.typeArguments().toMutableList()
             type.primitive = t.isPrimitive
             linkingContext.linkTable[fullName] = type
             return true
@@ -110,13 +129,13 @@ object InternalLinker : Linker() {
                 t.className(),
                 t.pkg(),
                 superClass = t.superClass(),
-                interfaces = t.interfaces().orElse(null)?.toMutableList(),
+                interfaces = t.interfaces().toMutableList(),
                 fields = t.fields().toMutableList(),
                 methods = t.methods().toMutableList(),
                 accessFlags = t.accessFlags().toMutableList(),
                 attributes = t.attributes().toMutableList(),
-                typeParameters = t.typeParameters().orElse(Utils.EMPTY_TYPE_PARAMETERS).toMutableList(),
-                typeArguments = t.typeArguments().orElse(Utils.EMPTY_TYPE_ARGUMENTS).toMutableList(),
+                typeParameters = t.typeParameters().toMutableList(),
+                typeArguments = t.typeArguments().toMutableList(),
                 primitive = t.isPrimitive,
             )
 
@@ -138,7 +157,7 @@ object InternalLinker : Linker() {
             }
 
         method.typeParameters
-            ?.map { it.bound() }
-            ?.forEach { link(it as? MutableType, linkingContext) }
+            .map { it.bound() }
+            .forEach { link(it as? MutableType, linkingContext) }
     }
 }
