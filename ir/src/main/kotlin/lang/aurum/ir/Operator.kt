@@ -72,7 +72,9 @@ enum class Associativity {
     RIGHT_TO_LEFT, LEFT_TO_RIGHT;
 
     companion object {
+        @JvmStatic
         val PREFIX = LEFT_TO_RIGHT
+        @JvmStatic
         val POSTFIX = RIGHT_TO_LEFT
     }
 }
