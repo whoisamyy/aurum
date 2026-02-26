@@ -277,11 +277,11 @@ expressionBlock
     ;
 
 lambdaExpr
-    : (('(' lambdaParamList? ')') | EmptyBraces) '=>' expression      # lambda
-    | (('(' lambdaParamList? ')') | EmptyBraces) '=>' expressionBlock # lambda
-    | (('(' lambdaParamList? ')') | EmptyBraces) '=>' statement       # lambda
-    | (('(' lambdaParamList? ')') | EmptyBraces) '=>' block           # lambda
-    | postfixExpr (binaryOp postfixExpr)*                             # binary
+    : typeExpr? (('(' lambdaParamList? ')') | EmptyBraces) '=>' expression      # lambda
+    | typeExpr? (('(' lambdaParamList? ')') | EmptyBraces) '=>' expressionBlock # lambda
+    | typeExpr? (('(' lambdaParamList? ')') | EmptyBraces) '=>' statement       # lambda
+    | typeExpr? (('(' lambdaParamList? ')') | EmptyBraces) '=>' block           # lambda
+    | postfixExpr (binaryOp postfixExpr)*                                       # binary
     ;
 
 lambdaParamList
@@ -298,7 +298,8 @@ postfixExpr
     ;
 
 postfixPart
-    : '.' Identifier                           # memberAccess
+    : '.' identifier=Identifier                # memberAccess
+    | '.' identifier='init'                    # memberAccess
     | 'as' typeExpr                            # cast
     | '(' argList? ')'                         # functionCall
     | indexAccessPart                          # indexAccess
@@ -317,6 +318,7 @@ prefixExpr
 primaryExpr
     : Identifier                              # identifier
     | Literal                                 # literal
+    | typeExpr                                # type
     | '(' expression ')'                      # paren
     | '[' (expression (',' expression)*)? ']' # array
     ;
@@ -344,17 +346,20 @@ EmptyBraces
 OperatorSymbol
     : '+' | '-' | '*' | '/' | '%' | '**'
     | '==' | '!=' | '<' | '>' | '<=' | '>='
-    | 'as' | '[]' | EmptyBraces
+    | 'as' | 'is' | '[]' | EmptyBraces
     | [+\-*/\\%$!?~^<>]+
     ;
 
 Literal
-    : IntegerLiteral
-    | FloatLiteral
+    : NumberLiteral
     | StringLiteral
     | BooleanLiteral
     | '_'
     | 'null'
+    ;
+
+fragment NumberLiteral
+    : ('+' | '-')? (IntegerLiteral | FloatLiteral)
     ;
 
 IntegerLiteral
