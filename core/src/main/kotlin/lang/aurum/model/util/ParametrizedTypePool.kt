@@ -9,14 +9,14 @@ object ParametrizedTypePool {
 
     @JvmStatic
     fun getParametrizedTypes(type: Type): Set<Type> {
-        if (type.typeArguments().isPresent)
+        if (type.typeArguments().isNotEmpty())
             return pool.computeIfAbsent(type.withDefaultTypeArguments()) { mutableSetOf(type) }
         return pool.computeIfAbsent(type.withDefaultTypeArguments()) { mutableSetOf() }
     }
 
     @JvmStatic
     fun getBaseType(type: Type): Type {
-        if (type.typeArguments().isEmpty)
+        if (type.typeArguments().isEmpty())
             return type
 
         return pool.inverse.filter { (set, _) -> type in set }.values.first()
