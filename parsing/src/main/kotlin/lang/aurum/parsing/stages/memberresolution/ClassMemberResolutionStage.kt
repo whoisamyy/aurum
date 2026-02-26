@@ -41,7 +41,7 @@ class ClassMemberResolutionStage(parsingContext: ParsingContext) : ParsingStage(
                     interfaces?.remove(superClass)
 
                     type.superClass = superClass
-                    type.interfaces = interfaces
+                    type.interfaces = interfaces ?: mutableListOf()
 
                     val constructorParams = ctx.defaultConstructorParamList()?.defaultConstructorParam()?.map {
                         val name = it.Identifier().text
@@ -81,13 +81,14 @@ class ClassMemberResolutionStage(parsingContext: ParsingContext) : ParsingStage(
                     val superClasses = ctx.typeExprList()?.typeExpr()?.map(typeResolver::toUnresolvedType)
                     val superClass = superClasses
                         ?.find { it?.isInterface == false }
-                        ?: Types.OBJECT
+
+                    if (superClass != null)
+                        throw IllegalStateException("Interfaces cannot have super classes. Only interfaces are allowed")
 
                     val interfaces = superClasses?.filterNotNull()?.toMutableList()
-                    interfaces?.remove(superClass)
 
                     type.superClass = superClass
-                    type.interfaces = interfaces
+                    type.interfaces = interfaces ?: mutableListOf()
 
                     for (member in ctx.funcSign()) {
                         type.methods += type.resolveMember(member, typeResolver)
@@ -141,6 +142,10 @@ class ClassMemberResolutionStage(parsingContext: ParsingContext) : ParsingStage(
                             it.varDecl() != null -> type.resolveMember(it.varDecl(), typeResolver)
                             it.funcDecl() != null -> type.methods += type.resolveMember(it.funcDecl(), typeResolver)
                             it.operatorDecl() != null -> type.methods += type.resolveMember(it.operatorDecl(), typeResolver)
+                            it.typeDef() != null -> {
+                                file.typeDefs += it.typeDef()
+                                    .Identifier().text to typeResolver.toUnresolvedType(it.typeDef().typeExpr())!!
+                            }
                         }
                     }
                 }
@@ -237,6 +242,7 @@ private fun MutableType.resolveMember(member: AurumParser.MultiDeclContext, type
 private fun MutableType.resolveMember(member: AurumParser.FuncDeclContext, typeResolver: TypeResolver): MutableMethod {
     val method = resolveMember(member.funcSign(), typeResolver)
     method.attributes += BlockAttribute(member.block())
+    method.accessFlags.remove(AccessFlag.ABSTRACT)
 
     return method
 }
@@ -325,6 +331,10 @@ private fun MutableType.resolveMember(member: AurumParser.OperatorDeclContext, t
 private fun MutableType.resolveMember(member: AurumParser.FuncSignContext, typeResolver: TypeResolver): MutableMethod {
     val name = member.Identifier().text
     val accessFlags = member.modifier().toAccessFlags()
+
+    if (this.isInterface || this.isAbstract)
+        accessFlags += AccessFlag.ABSTRACT
+
     if (this.attributes.contains<FileClassAttribute>()) {
         accessFlags += AccessFlag.STATIC
         if (accessFlags.none { it in setOf(AccessFlag.PUBLIC, AccessFlag.PRIVATE, AccessFlag.PROTECTED) })
