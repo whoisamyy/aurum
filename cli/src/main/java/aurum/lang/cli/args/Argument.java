@@ -1,3 +1,3 @@
-package lang.aurum;
+package aurum.lang.cli.args;
 
 public interface Argument {}

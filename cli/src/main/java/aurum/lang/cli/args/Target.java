@@ -1,9 +1,7 @@
-package lang.aurum.codegen;
-
-import lang.aurum.Argument;
+package aurum.lang.cli.args;
 
 public enum Target implements Argument {
-    JVM(".class"), AVM(".aur"), IR(".aur");
+    JVM(".class"), AVM(".aub"), IR(".aur");
 
     public final String extension;
 

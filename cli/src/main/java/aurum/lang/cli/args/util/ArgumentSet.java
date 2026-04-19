@@ -1,6 +1,6 @@
-package lang.aurum.util;
+package aurum.lang.cli.args.util;
 
-import lang.aurum.Argument;
+import aurum.lang.cli.args.Argument;
 
 import java.util.HashSet;
 
