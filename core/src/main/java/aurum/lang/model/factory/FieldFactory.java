@@ -1,8 +1,8 @@
-package lang.aurum.model.factory;
+package aurum.lang.model.factory;
 
-import lang.aurum.model.Field;
-import lang.aurum.model.impl.FieldImpl;
-import lang.aurum.model.impl.Utils;
+import aurum.lang.model.Field;
+import aurum.lang.model.impl.FieldImpl;
+import aurum.lang.model.impl.Utils;
 
 import java.lang.reflect.AccessFlag;
 

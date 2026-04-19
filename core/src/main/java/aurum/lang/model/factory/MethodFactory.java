@@ -1,12 +1,12 @@
-package lang.aurum.model.factory;
+package aurum.lang.model.factory;
 
-import lang.aurum.model.Method;
-import lang.aurum.model.Parameter;
-import lang.aurum.model.Type;
-import lang.aurum.model.Types;
-import lang.aurum.model.impl.MethodImpl;
-import lang.aurum.model.impl.ParameterImpl;
-import lang.aurum.model.impl.Utils;
+import aurum.lang.model.Method;
+import aurum.lang.model.Parameter;
+import aurum.lang.model.Type;
+import aurum.lang.model.Types;
+import aurum.lang.model.impl.MethodImpl;
+import aurum.lang.model.impl.ParameterImpl;
+import aurum.lang.model.impl.Utils;
 
 import java.lang.reflect.AccessFlag;
 import java.lang.reflect.Constructor;
@@ -21,12 +21,12 @@ public final class MethodFactory {
                 parametersOf(method.getParameters()),
                 Arrays.stream(method.getGenericExceptionTypes()).map(TypeFactory::ofType).toArray(Type[]::new),
                 method.accessFlags().toArray(AccessFlag[]::new),
-                lang.aurum.model.factory.Utils.getTypeParameters(method),
+                aurum.lang.model.factory.Utils.getTypeParameters(method),
                 Utils.EMPTY_TYPE_ARGUMENTS, // empty because of the way method generic parametrization is handled
                 Utils.EMPTY_ATTRIBUTES
         );
 
-        lang.aurum.model.factory.Utils.processTypeParameters(ret, method);
+        aurum.lang.model.factory.Utils.processTypeParameters(ret, method);
 
         return ret;
     }
@@ -39,12 +39,12 @@ public final class MethodFactory {
                 parametersOf(constructor.getParameters()),
                 Arrays.stream(constructor.getGenericExceptionTypes()).map(TypeFactory::ofType).toArray(Type[]::new),
                 constructor.accessFlags().toArray(AccessFlag[]::new),
-                lang.aurum.model.factory.Utils.getTypeParameters(constructor),
+                aurum.lang.model.factory.Utils.getTypeParameters(constructor),
                 Utils.EMPTY_TYPE_ARGUMENTS, // left empty because of the way method generic parametrization is handled
                 Utils.EMPTY_ATTRIBUTES
         );
 
-        lang.aurum.model.factory.Utils.processTypeParameters(ret, constructor);
+        aurum.lang.model.factory.Utils.processTypeParameters(ret, constructor);
 
         return ret;
     }

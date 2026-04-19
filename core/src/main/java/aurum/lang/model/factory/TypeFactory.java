@@ -1,10 +1,10 @@
-package lang.aurum.model.factory;
+package aurum.lang.model.factory;
 
+import aurum.lang.model.*;
+import aurum.lang.model.impl.IntersectionTypeImpl;
+import aurum.lang.model.impl.PrimitiveTypeImpl;
+import aurum.lang.model.impl.TypeImpl;
 import kotlin.Pair;
-import lang.aurum.model.*;
-import lang.aurum.model.impl.IntersectionTypeImpl;
-import lang.aurum.model.impl.PrimitiveTypeImpl;
-import lang.aurum.model.impl.TypeImpl;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -90,7 +90,7 @@ public final class TypeFactory {
         Class<?>[] interfaces = clazz.getInterfaces();
 
         Type[] interfaceTypes = interfaces.length == 0
-                ? lang.aurum.model.impl.Utils.EMPTY_TYPES
+                ? aurum.lang.model.impl.Utils.EMPTY_TYPES
                 : new Type[interfaces.length];
 
         TypeImpl type = new TypeImpl(
@@ -101,9 +101,9 @@ public final class TypeFactory {
                 new Field[clazz.getFields().length],
                 new Method[clazz.getMethods().length + clazz.getConstructors().length],
                 clazz.accessFlags().toArray(AccessFlag[]::new),
-                lang.aurum.model.impl.Utils.EMPTY_ATTRIBUTES,
+                aurum.lang.model.impl.Utils.EMPTY_ATTRIBUTES,
                 Utils.getTypeParameters(clazz),
-                lang.aurum.model.impl.Utils.EMPTY_TYPE_ARGUMENTS
+                aurum.lang.model.impl.Utils.EMPTY_TYPE_ARGUMENTS
         );
 
         cache.put(arrayClass, type);

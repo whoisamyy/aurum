@@ -1,9 +1,9 @@
-package lang.aurum.model.factory;
+package aurum.lang.model.factory;
 
-import lang.aurum.model.Generic;
-import lang.aurum.model.Type;
-import lang.aurum.model.TypeParameter;
-import lang.aurum.model.impl.TypeParameterImpl;
+import aurum.lang.model.Generic;
+import aurum.lang.model.Type;
+import aurum.lang.model.TypeParameter;
+import aurum.lang.model.impl.TypeParameterImpl;
 
 import java.lang.reflect.GenericDeclaration;
 import java.lang.reflect.TypeVariable;
@@ -41,7 +41,7 @@ public final class Utils {
         var typeParams = new TypeParameter[generic.getTypeParameters().length];
 
         if (typeParams.length == 0)
-            return lang.aurum.model.impl.Utils.EMPTY_TYPE_PARAMETERS;
+            return aurum.lang.model.impl.Utils.EMPTY_TYPE_PARAMETERS;
 
         return typeParams;
     }
