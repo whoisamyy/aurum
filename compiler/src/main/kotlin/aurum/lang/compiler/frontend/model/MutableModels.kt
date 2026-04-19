@@ -1,10 +1,10 @@
-package lang.aurum.parsing.model
+package aurum.lang.compiler.frontend.model
 
-import lang.aurum.attribute.ExtensionAttribute
-import lang.aurum.model.*
-import lang.aurum.model.factory.TypeFactory.TypePool
-import lang.aurum.model.impl.*
-import lang.aurum.parsing.attribute.contains
+import aurum.lang.compiler.frontend.attribute.contains
+import aurum.lang.model.*
+import aurum.lang.model.attribute.ExtensionAttribute
+import aurum.lang.model.factory.TypeFactory.TypePool
+import aurum.lang.model.impl.*
 import java.lang.reflect.AccessFlag
 
 object MutableTypePool {
@@ -16,7 +16,7 @@ object MutableTypePool {
 
     fun get(
         className: String,
-        pkg: String?,
+        pkg: String? = null,
         superClass: Type? = Types.OBJECT,
         interfaces: MutableList<Type> = mutableListOf(),
         fields: MutableList<Field> = mutableListOf(),
@@ -264,13 +264,13 @@ data class MutableMethod (
 data class MutableField (
     val owner: Type,
     var name: String,
-    var type: Type? = null,
-    var attributes: MutableList<Attribute> = Utils.EMPTY_ATTRIBUTES.toMutableList(),
-    var accessFlags: MutableList<AccessFlag> = Utils.DEFAULT_ACCESS_FLAGS.toMutableList()
+    var type: Type = Types.OBJECT,
+    var attributes: MutableList<Attribute> = mutableListOf(),
+    var accessFlags: MutableList<AccessFlag> = mutableListOf()
 ) : Field {
     override fun owner(): Type = owner
     override fun name(): String = name
-    override fun type(): Type = type ?: Types.OBJECT
+    override fun type(): Type = type
     override fun attributes(): Array<out Attribute> = attributes.toTypedArray()
     override fun accessFlags(): Array<out AccessFlag> = accessFlags.toTypedArray()
 }
@@ -340,6 +340,52 @@ data class MutableIntersectionType (
     override fun toString(): String {
         return toUsageString()
     }
+}
+
+data class MutablePackage (
+    val name: String,
+    val parent: Package? = null,
+    val publicTypes: MutableSet<Type> = mutableSetOf(),
+    val privateTypes: MutableSet<Type> = mutableSetOf(),
+    val publicMembers: MutableSet<Member> = mutableSetOf(),
+    val privateMembers: MutableSet<Member> = mutableSetOf(),
+    val publicPackages: MutableSet<Package> = mutableSetOf(),
+    val privatePackages: MutableSet<Package> = mutableSetOf(),
+) : Package {
+    override fun name(): String = name
+    override fun parent(): Package? = parent
+    override fun publicTypes(): Array<out Type> = publicTypes.toTypedArray()
+    override fun privateTypes(): Array<out Type> = privateTypes.toTypedArray()
+    override fun publicMembers(): Array<out Member> = publicMembers.toTypedArray()
+    override fun privateMembers(): Array<out Member> = privateMembers.toTypedArray()
+    override fun publicPackages(): Array<out Package> = publicPackages.toTypedArray()
+    override fun privatePackages(): Array<out Package> = privatePackages.toTypedArray()
+}
+
+fun Package.toMutable(): MutablePackage {
+    return MutablePackage(
+            this.name(),
+            this.parent(),
+            this.publicTypes().toMutableSet(),
+            this.privateTypes().toMutableSet(),
+            this.publicMembers().toMutableSet(),
+            this.privateMembers().toMutableSet(),
+            this.publicPackages().toMutableSet(),
+            this.privatePackages().toMutableSet()
+    )
+}
+
+fun MutablePackage.toImmutable(): Package {
+    return Package.of(
+        this.name(),
+        this.parent(),
+        this.publicTypes(),
+        this.privateTypes(),
+        this.publicMembers(),
+        this.privateMembers(),
+        this.publicPackages(),
+        this.privatePackages()
+    )
 }
 
 fun Member.toMutable(): Member = this
