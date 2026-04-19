@@ -1,4 +1,4 @@
-package lang.aurum.model;
+package aurum.lang.model;
 
 import org.junit.jupiter.api.Test;
 
@@ -8,8 +8,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class TypeTest {
-
-
     @Test
     public void getInheritanceDistance_Integer_Object_test() {
         assertEquals(2, Type.ofClass(Integer.class).getInheritanceDistance(Types.OBJECT));
