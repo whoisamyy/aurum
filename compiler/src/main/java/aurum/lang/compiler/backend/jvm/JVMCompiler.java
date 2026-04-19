@@ -1,13 +1,12 @@
-package lang.aurum.codegen.jvm;
+package aurum.lang.compiler.backend.jvm;
 
-import lang.aurum.codegen.Compiler;
-import lang.aurum.codegen.jvm.util.Utils;
-import lang.aurum.ir.CodeAttribute;
-import lang.aurum.ir.ConstantPool;
-import lang.aurum.model.*;
-import lang.aurum.parsing.AurumErrorKt;
-import lang.aurum.parsing.attribute.AttributeExtensionsKt;
-import lang.aurum.parsing.model.MutableMethod;
+import aurum.lang.compiler.backend.Compiler;
+import aurum.lang.compiler.backend.jvm.util.Utils;
+import aurum.lang.compiler.frontend.attribute.AttributeExtensionsKt;
+import aurum.lang.compiler.frontend.model.MutableMethod;
+import aurum.lang.ir.CodeAttribute;
+import aurum.lang.ir.ConstantPool;
+import aurum.lang.model.*;
 
 import java.io.IOException;
 import java.lang.classfile.*;
@@ -18,6 +17,8 @@ import java.lang.classfile.instruction.StoreInstruction;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+
+//import aurum.lang.compiler.frontend.AurumErrorKt;
 
 public record JVMCompiler(Type type, ConstantPool constantPool) implements Compiler {
     @Override
@@ -68,7 +69,7 @@ public record JVMCompiler(Type type, ConstantPool constantPool) implements Compi
                                              cb,
                                              constantPool,
                                              AttributeExtensionsKt.get(method.attributes(), CodeAttribute.class)
-                                                    .getCode()
+                                                                  .getCode()
                                      ));
                                  }
                          );
@@ -89,10 +90,10 @@ public record JVMCompiler(Type type, ConstantPool constantPool) implements Compi
     private static void verifyBytecode(Path output, ClassFile cf, byte[] clazz) {
         List<VerifyError> verifyErrors = cf.verify(clazz);
         if (!verifyErrors.isEmpty())
-            throw AurumErrorKt.aurumError(
-                    "Error while compiling to JVM target: " + verifyErrors,
-                    output,
-                    null
+            throw new IllegalStateException(
+                    "Error while compiling to JVM target: " + verifyErrors
+//                    output,
+//                    null
             );
     }
 

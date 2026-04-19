@@ -1,16 +1,15 @@
-package lang.aurum.codegen.jvm;
+package aurum.lang.compiler.backend.jvm;
 
+import aurum.lang.compiler.backend.jvm.util.Utils;
+import aurum.lang.compiler.frontend.attribute.AttributeExtensionsKt;
+import aurum.lang.compiler.frontend.model.MutableModelsKt;
+import aurum.lang.ir.*;
+import aurum.lang.ir.Instruction;
+import aurum.lang.model.*;
+import aurum.lang.model.Attribute;
+import aurum.lang.model.attribute.ExtensionAttribute;
+import aurum.lang.model.attribute.LambdaMethodAttribute;
 import kotlin.Pair;
-import lang.aurum.attribute.ExtensionAttribute;
-import lang.aurum.attribute.LambdaMethodAttribute;
-import lang.aurum.codegen.jvm.util.Utils;
-import lang.aurum.ir.*;
-import lang.aurum.ir.Instruction;
-import lang.aurum.model.*;
-import lang.aurum.model.Attribute;
-import lang.aurum.parsing.AurumErrorKt;
-import lang.aurum.parsing.attribute.AttributeExtensionsKt;
-import lang.aurum.parsing.model.MutableModelsKt;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -21,9 +20,10 @@ import java.lang.classfile.instruction.ConvertInstruction;
 import java.lang.classfile.instruction.OperatorInstruction;
 import java.lang.constant.*;
 import java.lang.invoke.LambdaMetafactory;
-import java.nio.file.Path;
 import java.util.*;
 import java.util.function.Consumer;
+
+//import aurum.lang.compiler.frontend.AurumErrorKt;
 
 public class Translator implements Consumer<CodeBuilder> {
     private final Method method;
@@ -171,23 +171,23 @@ public class Translator implements Consumer<CodeBuilder> {
                     var argTypes = invokeConstructor.getArgs().stream().map(this::resolveRValue).toList();
 
                     var constructorMethod = objType.findMethod("<init>", argTypes.toArray(Type[]::new))
-                                                   .orElseThrow(() ->
-                                                           AurumErrorKt.aurumError(
-                                                                   "Couldn't find method %s<init>(%s)"
-                                                                           .formatted(
-                                                                                   objType.toUsageString(),
-                                                                                   String.join(
-                                                                                           ", ",
-                                                                                           argTypes.stream()
-                                                                                                   .map(Type::toUsageString)
-                                                                                                   .toList()
-                                                                                   )
-                                                                           ),
-                                                                   "%d:%d"
-                                                                           .formatted(finalJ, -1),
-                                                                   (Path) null
-                                                           )
-                                                   );
+                                                   .orElseThrow();//() ->
+//                                                           AurumErrorKt.aurumError(
+//                                                                   "Couldn't find method %s<init>(%s)"
+//                                                                           .formatted(
+//                                                                                   objType.toUsageString(),
+//                                                                                   String.join(
+//                                                                                           ", ",
+//                                                                                           argTypes.stream()
+//                                                                                                   .map(Type::toUsageString)
+//                                                                                                   .toList()
+//                                                                                   )
+//                                                                           ),
+//                                                                   "%d:%d"
+//                                                                           .formatted(finalJ, -1),
+//                                                                   (Path) null
+//                                                           )
+//                                                   );
 
                     codeBuilder.invokespecial(Utils.classDescOf(objType), "<init>", Utils.methodTypeDescOf(constructorMethod));
                 }
@@ -513,93 +513,93 @@ public class Translator implements Consumer<CodeBuilder> {
         var typeKind = pair.getSecond();
 
         switch (operator.getDefaultOpcode()) {
-            case lang.aurum.ir.Opcode.Add -> {
+            case aurum.lang.ir.Opcode.Add -> {
                 var opcode = getOperatorOpcode(Opcode.IADD, typeKind);
                 if (opcode != null) {
                     codeBuilder.with(OperatorInstruction.of(opcode));
                 }
             }
-            case lang.aurum.ir.Opcode.Sub -> {
+            case aurum.lang.ir.Opcode.Sub -> {
                 var opcode = getOperatorOpcode(Opcode.ISUB, typeKind);
                 if (opcode != null) {
                     codeBuilder.with(OperatorInstruction.of(opcode));
                 }
             }
-            case lang.aurum.ir.Opcode.Mul -> {
+            case aurum.lang.ir.Opcode.Mul -> {
                 var opcode = getOperatorOpcode(Opcode.IMUL, typeKind);
                 if (opcode != null) {
                     codeBuilder.with(OperatorInstruction.of(opcode));
                 }
             }
-            case lang.aurum.ir.Opcode.Div -> {
+            case aurum.lang.ir.Opcode.Div -> {
                 var opcode = getOperatorOpcode(Opcode.IDIV, typeKind);
                 if (opcode != null) {
                     codeBuilder.with(OperatorInstruction.of(opcode));
                 }
             }
-            case lang.aurum.ir.Opcode.Mod -> {
+            case aurum.lang.ir.Opcode.Mod -> {
                 var opcode = getOperatorOpcode(Opcode.IREM, typeKind);
                 if (opcode != null) {
                     codeBuilder.with(OperatorInstruction.of(opcode));
                 }
             }
-            case lang.aurum.ir.Opcode.And -> {
+            case aurum.lang.ir.Opcode.And -> {
                 var opcode = getOperatorOpcode(Opcode.IAND, typeKind);
                 if (opcode != null) {
                     codeBuilder.with(OperatorInstruction.of(opcode));
                 }
             }
-            case lang.aurum.ir.Opcode.Or -> {
+            case aurum.lang.ir.Opcode.Or -> {
                 var opcode = getOperatorOpcode(Opcode.IOR, typeKind);
                 if (opcode != null) {
                     codeBuilder.with(OperatorInstruction.of(opcode));
                 }
             }
-            case lang.aurum.ir.Opcode.Xor -> {
+            case aurum.lang.ir.Opcode.Xor -> {
                 var opcode = getOperatorOpcode(Opcode.IXOR, typeKind);
                 if (opcode != null) {
                     codeBuilder.with(OperatorInstruction.of(opcode));
                 }
             }
-            case lang.aurum.ir.Opcode.Shl -> {
+            case aurum.lang.ir.Opcode.Shl -> {
                 var opcode = getOperatorOpcode(Opcode.ISHL, typeKind);
                 if (opcode != null) {
                     codeBuilder.with(OperatorInstruction.of(opcode));
                 }
             }
-            case lang.aurum.ir.Opcode.Shr -> {
+            case aurum.lang.ir.Opcode.Shr -> {
                 var opcode = getOperatorOpcode(Opcode.ISHR, typeKind);
                 if (opcode != null) {
                     codeBuilder.with(OperatorInstruction.of(opcode));
                 }
             }
-            case lang.aurum.ir.Opcode.Ushr -> {
+            case aurum.lang.ir.Opcode.Ushr -> {
                 var opcode = getOperatorOpcode(Opcode.IUSHR, typeKind);
                 if (opcode != null) {
                     codeBuilder.with(OperatorInstruction.of(opcode));
                 }
             }
-            case lang.aurum.ir.Opcode.CmpEq -> {
+            case aurum.lang.ir.Opcode.CmpEq -> {
                 resolveComparison(Opcode.IF_ICMPEQ, Opcode.IFEQ, typeKind);
                 return Types.BOOLEAN;
             }
-            case lang.aurum.ir.Opcode.CmpNe -> {
+            case aurum.lang.ir.Opcode.CmpNe -> {
                 resolveComparison(Opcode.IF_ICMPNE, Opcode.IFNE, typeKind);
                 return Types.BOOLEAN;
             }
-            case lang.aurum.ir.Opcode.CmpLt -> {
+            case aurum.lang.ir.Opcode.CmpLt -> {
                 resolveComparison(Opcode.IF_ICMPLT, Opcode.IFLT, typeKind);
                 return Types.BOOLEAN;
             }
-            case lang.aurum.ir.Opcode.CmpLe -> {
+            case aurum.lang.ir.Opcode.CmpLe -> {
                 resolveComparison(Opcode.IF_ICMPLE, Opcode.IFLE, typeKind);
                 return Types.BOOLEAN;
             }
-            case lang.aurum.ir.Opcode.CmpGt -> {
+            case aurum.lang.ir.Opcode.CmpGt -> {
                 resolveComparison(Opcode.IF_ICMPGT, Opcode.IFGT, typeKind);
                 return Types.BOOLEAN;
             }
-            case lang.aurum.ir.Opcode.CmpGe -> {
+            case aurum.lang.ir.Opcode.CmpGe -> {
                 resolveComparison(Opcode.IF_ICMPGE, Opcode.IFGE, typeKind);
                 return Types.BOOLEAN;
             }

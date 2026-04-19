@@ -1,6 +1,6 @@
-package lang.aurum.codegen.jvm.util;
+package aurum.lang.compiler.backend.jvm.util;
 
-import lang.aurum.model.*;
+import aurum.lang.model.*;
 import org.jetbrains.annotations.NotNull;
 
 import java.lang.classfile.constantpool.ConstantPool;
@@ -28,7 +28,7 @@ public final class Utils {
 
     }
 
-    public static ConstantPool constantPoolOf(lang.aurum.ir.ConstantPool cp) {
+    public static ConstantPool constantPoolOf(aurum.lang.ir.ConstantPool cp) {
         var cpBuilder = ConstantPoolBuilder.of();
         var sortedEntries = cp.getConstantPool().entrySet().stream()
                               .sorted(Comparator.comparingInt(e -> e.getKey().getRef()))
