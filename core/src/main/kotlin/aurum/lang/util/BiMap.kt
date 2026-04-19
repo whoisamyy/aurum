@@ -1,4 +1,4 @@
-package lang.aurum.util
+package aurum.lang.util
 
 interface BiMap<K : Any, V : Any> : Map<K, V> {
     override val values: Set<V>
