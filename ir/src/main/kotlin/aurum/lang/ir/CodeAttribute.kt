@@ -1,6 +1,6 @@
-package lang.aurum.ir
+package aurum.lang.ir
 
-import lang.aurum.model.Attribute
+import aurum.lang.model.Attribute
 
 data class CodeAttribute(
     val code: MutableList<Instruction>

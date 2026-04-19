@@ -1,8 +1,8 @@
 @file:Suppress("ConstPropertyName")
 
-package lang.aurum.ir
+package aurum.lang.ir
 
-import lang.aurum.model.*
+import aurum.lang.model.*
 import java.io.DataOutputStream
 
 const val CONSTANT_POOL_ELEMENT_SIZE: Int = 2

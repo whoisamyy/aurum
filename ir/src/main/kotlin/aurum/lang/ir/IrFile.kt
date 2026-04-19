@@ -1,7 +1,7 @@
-package lang.aurum.ir
+package aurum.lang.ir
 
-import lang.aurum.model.Member
-import lang.aurum.model.Type
+import aurum.lang.model.Member
+import aurum.lang.model.Type
 import java.nio.file.Path
 
 data class IrFile(

@@ -1,11 +1,11 @@
-package lang.aurum.ir
+package aurum.lang.ir
 
-import lang.aurum.model.Field
-import lang.aurum.model.Member
-import lang.aurum.model.Method
-import lang.aurum.model.Type
-import lang.aurum.util.HashBiMap
-import lang.aurum.util.MutableBiMap
+import aurum.lang.model.Field
+import aurum.lang.model.Member
+import aurum.lang.model.Method
+import aurum.lang.model.Type
+import aurum.lang.util.HashBiMap
+import aurum.lang.util.MutableBiMap
 
 class ConstantPool {
     val references: MutableSet<ConstantPoolRef> = HashSet()

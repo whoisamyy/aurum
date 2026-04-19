@@ -1,4 +1,4 @@
-package lang.aurum.ir
+package aurum.lang.ir
 
 import java.io.DataOutputStream
 

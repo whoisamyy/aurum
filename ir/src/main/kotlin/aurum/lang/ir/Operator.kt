@@ -1,4 +1,4 @@
-package lang.aurum.ir
+package aurum.lang.ir
 
 sealed interface Operator {
     val symbol: String
@@ -6,6 +6,10 @@ sealed interface Operator {
     val associativity: Associativity
     val defaultOpcode: Opcode?
     val isBinary: Boolean
+
+    companion object {
+        const val DEFAULT_PRECEDENCE = 130
+    }
 }
 
 data class CustomOperator (
