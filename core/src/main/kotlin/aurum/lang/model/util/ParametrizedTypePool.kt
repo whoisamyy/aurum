@@ -1,8 +1,8 @@
-package lang.aurum.model.util
+package aurum.lang.model.util
 
-import lang.aurum.model.Type
-import lang.aurum.util.MutableBiMap
-import lang.aurum.util.mutableBiMapOf
+import aurum.lang.model.Type
+import aurum.lang.util.MutableBiMap
+import aurum.lang.util.mutableBiMapOf
 
 object ParametrizedTypePool {
     private val pool: MutableBiMap<Type, MutableSet<Type>> = mutableBiMapOf()
