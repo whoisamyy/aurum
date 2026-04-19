@@ -1,4 +1,4 @@
-package lang.aurum
+package aurum.lang.cli.aurum.lang.cli
 
 import java.lang.reflect.Field
 import java.lang.reflect.Modifier
@@ -95,31 +95,37 @@ class CLI<T : Any>(
 
     companion object {
         @Suppress("UNCHECKED_CAST")
-        private val registeredTypeConverters: MutableMap<Class<*>, Class<TypeConverter<*>>> = mutableMapOf(
-            String::class.java to StringConverter::class.java,
-            Int::class.java to IntConverter::class.java,
-            Char::class.java to CharConverter::class.java,
-            Long::class.java to LongConverter::class.java,
-            Short::class.java to ShortConverter::class.java,
-            Byte::class.java to ByteConverter::class.java,
-            Boolean::class.java to BooleanConverter::class.java,
-            Path::class.java to PathConverter::class.java,
-            Float::class.java to FloatConverter::class.java,
-            Double::class.java to DoubleConverter::class.java,
-            Int::class.javaObjectType to IntConverter::class.java,
-            Char::class.javaObjectType to CharConverter::class.java,
-            Long::class.javaObjectType to LongConverter::class.java,
-            Short::class.javaObjectType to ShortConverter::class.java,
-            Byte::class.javaObjectType to ByteConverter::class.java,
-            Boolean::class.javaObjectType to BooleanConverter::class.java,
-            Float::class.javaObjectType to FloatConverter::class.java,
-            Double::class.javaObjectType to DoubleConverter::class.java,
-        ) as MutableMap<Class<*>, Class<TypeConverter<*>>>
+        private val registeredTypeConverters: MutableMap<Class<*>, TypeConverter<*>> = mutableMapOf(
+            String::class.java to StringConverter,
+            Int::class.java to IntConverter,
+            Char::class.java to CharConverter,
+            Long::class.java to LongConverter,
+            Short::class.java to ShortConverter,
+            Byte::class.java to ByteConverter,
+            Boolean::class.java to BooleanConverter,
+            Path::class.java to PathConverter,
+            Float::class.java to FloatConverter,
+            Double::class.java to DoubleConverter,
+            Int::class.javaObjectType to IntConverter,
+            Char::class.javaObjectType to CharConverter,
+            Long::class.javaObjectType to LongConverter,
+            Short::class.javaObjectType to ShortConverter,
+            Byte::class.javaObjectType to ByteConverter,
+            Boolean::class.javaObjectType to BooleanConverter,
+            Float::class.javaObjectType to FloatConverter,
+            Double::class.javaObjectType to DoubleConverter,
+        ) as MutableMap<Class<*>, TypeConverter<*>>
 
         @JvmStatic
         @Suppress("UNCHECKED_CAST")
         fun <T : Any, U : TypeConverter<T>> registerTypeConverter(type: Class<T>, converterType: Class<U>) {
-            registeredTypeConverters[type] = converterType as Class<TypeConverter<*>>
+            registeredTypeConverters[type] = converterType.getDeclaredConstructor().newInstance()
+        }
+
+        @JvmStatic
+        @Suppress("UNCHECKED_CAST")
+        fun <T : Any> registerTypeConverter(type: Class<T>, converter: TypeConverter<T>) {
+            registeredTypeConverters[type] = converter
         }
     }
 
@@ -428,8 +434,7 @@ class CLI<T : Any>(
                     argIndex+1
                 else argIndex
 
-                val value = registeredTypeConverters[type]?.getConstructor()?.newInstance()
-                    ?.convert(args[newArgIndex])
+                val value = registeredTypeConverters[type]?.convert(args[newArgIndex])
                 if (value != null) {
                     args.removeAt(newArgIndex)
                 }
@@ -444,42 +449,42 @@ interface TypeConverter<T : Any> {
     fun convert(string: String): T
 }
 
-class StringConverter : TypeConverter<String> {
+object StringConverter : TypeConverter<String> {
     override fun convert(string: String): String = string
 }
 
-class IntConverter : TypeConverter<Int> {
+object IntConverter : TypeConverter<Int> {
     override fun convert(string: String): Int = string.toInt()
 }
 
-class CharConverter : TypeConverter<Char> {
+object CharConverter : TypeConverter<Char> {
     override fun convert(string: String): Char = string[0]
 }
 
-class LongConverter : TypeConverter<Long> {
+object LongConverter : TypeConverter<Long> {
     override fun convert(string: String): Long = string.toLong()
 }
 
-class FloatConverter : TypeConverter<Float> {
+object FloatConverter : TypeConverter<Float> {
     override fun convert(string: String): Float = string.toFloat()
 }
 
-class DoubleConverter : TypeConverter<Double> {
+object DoubleConverter : TypeConverter<Double> {
     override fun convert(string: String): Double = string.toDouble()
 }
 
-class ShortConverter : TypeConverter<Short> {
+object ShortConverter : TypeConverter<Short> {
     override fun convert(string: String): Short = string.toShort()
 }
 
-class ByteConverter : TypeConverter<Byte> {
+object ByteConverter : TypeConverter<Byte> {
     override fun convert(string: String): Byte = string.toByte()
 }
 
-class BooleanConverter : TypeConverter<Boolean> {
+object BooleanConverter : TypeConverter<Boolean> {
     override fun convert(string: String): Boolean = string.toBoolean()
 }
 
-class PathConverter : TypeConverter<Path> {
+object PathConverter : TypeConverter<Path> {
     override fun convert(string: String): Path = Path.of(string)
 }

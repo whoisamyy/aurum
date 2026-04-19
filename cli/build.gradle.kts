@@ -1,5 +1,6 @@
 plugins {
     id("java")
+    kotlin("jvm") version "2.2.0"
 }
 
 group = "io.github.whoisamyy"
@@ -11,9 +12,9 @@ repositories {
 
 dependencies {
     implementation(project(":core"))
-    implementation(project(":codegen"))
-    implementation(project(":parsing"))
+    implementation(project(":compiler"))
     implementation(project(":ir"))
+    implementation(kotlin("reflect"))
 
     implementation("org.jetbrains:annotations:26.0.2")
 
@@ -32,4 +33,16 @@ tasks.withType<JavaCompile> {
 
 java {
     modularity.inferModulePath.set(true)
+}
+
+tasks.withType<JavaCompile> {
+    options.compilerArgumentProviders.add(object : CommandLineArgumentProvider {
+        @CompileClasspath
+        val kotlinClasses = kotlin.sourceSets.main.flatMap { it.kotlin.classesDirectory }
+
+        override fun asArguments() = listOf(
+            "--patch-module",
+            "aurum.cli=${kotlinClasses.get().asFile.absolutePath}"
+        )
+    })
 }

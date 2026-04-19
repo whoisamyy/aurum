@@ -6,7 +6,7 @@ plugins {
     antlr
 }
 
-group = "org.aurum"
+group = "io.github.whoisamyy"
 version = "1.0-SNAPSHOT"
 
 repositories {
@@ -53,7 +53,7 @@ tasks.withType<JavaCompile> {
 
         override fun asArguments() = listOf(
             "--patch-module",
-            "aurum.parsing=${kotlinClasses.get().asFile.absolutePath}"
+            "aurum.compiler=${kotlinClasses.get().asFile.absolutePath}"
         )
     })
 }
