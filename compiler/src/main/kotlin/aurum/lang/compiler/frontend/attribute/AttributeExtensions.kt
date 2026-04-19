@@ -1,6 +1,6 @@
-package lang.aurum.parsing.attribute
+package aurum.lang.compiler.frontend.attribute
 
-import lang.aurum.model.Attribute
+import aurum.lang.model.Attribute
 import kotlin.reflect.KClass
 
 fun Iterable<Attribute>.get(attributeName: String): Attribute? {
