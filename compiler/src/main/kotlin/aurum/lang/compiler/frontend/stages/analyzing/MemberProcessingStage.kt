@@ -5,35 +5,37 @@ import aurum.lang.compiler.frontend.model.MutableMethod
 import aurum.lang.compiler.frontend.model.MutableType
 import aurum.lang.compiler.frontend.stages.*
 import aurum.lang.compiler.frontend.stages.parsing.ASTNode
+import aurum.lang.compiler.frontend.stages.typeresolving.AbstractTypeResolver
 import aurum.lang.model.Parameter
 import aurum.lang.model.Type
 import aurum.lang.model.TypeParameter
 import aurum.lang.model.Types
 import aurum.lang.model.attribute.PrimaryConstructorAttribute
 import aurum.lang.model.impl.Utils
+import java.lang.reflect.AccessFlag
 
 class MemberProcessingStage : Stage() {
     val definedPackages = input<DefinedPackages>()
     val processedTypes = input<ProcessedTypes>()
 
-//    val processedTypes = output<ProcessedTypes>()
+    val typeResolverFactory = input<TypeResolverFactory<*>>()
 
     init {
         dependsOn<TypeProcessingStage>()
     }
 
+    val packages by lazy { definedPackages.get() }
     private val availableTypes by lazy {
         processedTypes.get().groupBy(ProcessedType::file)
-            .mapValues { (file, types) -> types.map(ProcessedType::type).toSet() + file.importedTypes() }
+            .mapValues { (file, types) ->
+                types.map(ProcessedType::type).toSet() + file.importedTypes() +
+                        (packages.find { it.name() == file.pkg }?.types() ?: arrayOf())
+            }
     }
 
     override fun execute() {
-        val processed = processedTypes.get()
-            .map {
-                val type = processTypeMembers(it)
-                ProcessedType(type, it.declaration, it.file)
-            }
-            .toSet()
+        processedTypes.get()
+            .forEach(::processTypeMembers)
 
 //        processedTypes.set(ProcessedTypes(processed))
     }
@@ -51,13 +53,13 @@ class MemberProcessingStage : Stage() {
         val declaration = type.declaration as ASTNode.ClassDeclaration
         val unprocessedType = type.type as? MutableType ?: return type.type // only mutable types need to be processed
 
-        val typeGetter = getTypeGetter(type)
+        val typeResolver = getTypeResolver(type)
 
         val members = declaration.members
 
-        processImplicitConstructor(declaration, unprocessedType, typeGetter)
+        processImplicitConstructor(declaration, unprocessedType, typeResolver)
 
-        processMembers(members, unprocessedType, typeGetter)
+        processMembers(members, unprocessedType, typeResolver)
 
         return unprocessedType
     }
@@ -65,7 +67,7 @@ class MemberProcessingStage : Stage() {
     private fun processImplicitConstructor(
         declaration: ASTNode.ClassDeclaration,
         unprocessedType: MutableType,
-        typeGetter: TypeGetter
+        typeGetter: AbstractTypeResolver
     ) {
         if (declaration.defaultConstructorParameters == null)
             return
@@ -114,13 +116,15 @@ class MemberProcessingStage : Stage() {
                 }
             }
         }
+
+        unprocessedType.methods += implicitConstructor
     }
 
     fun processInterfaceMembers(type: ProcessedType): Type {
         val declaration = type.declaration as ASTNode.InterfaceDeclaration
         val unprocessedType = type.type as? MutableType ?: return type.type // only mutable types need to be processed
 
-        val typeGetter = getTypeGetter(type)
+        val typeGetter = getTypeResolver(type)
 
         val members = declaration.members
         processMembers(members, unprocessedType, typeGetter)
@@ -132,7 +136,7 @@ class MemberProcessingStage : Stage() {
         val declaration = type.declaration as ASTNode.ExtensionDeclaration
         val unprocessedType = type.type as? MutableType ?: return type.type // only mutable types need to be processed
 
-        val typeGetter = getTypeGetter(type)
+        val typeGetter = getTypeResolver(type)
 
         val members = declaration.members
         processMembers(members, unprocessedType, typeGetter)
@@ -141,17 +145,14 @@ class MemberProcessingStage : Stage() {
     }
 
     fun processDecoratorMembers(type: ProcessedType): Type {
-        val declaration = type.declaration as ASTNode.DecoratorDeclaration
         val unprocessedType = type.type as? MutableType ?: return type.type // only mutable types need to be processed
 
-        val typeGetter = getTypeGetter(type)
-
         // todo:
-//        processParameters(declaration.parameters ?: listOf(), typeGetter)
+//        processParameters(declaration.parameters ?: listOf(), typeResolver)
 //            .map {  }
 
 //        val members = declaration.members
-//        processMembers(members, unprocessedType, typeGetter)
+//        processMembers(members, unprocessedType, typeResolver)
 
         return unprocessedType
     }
@@ -159,42 +160,44 @@ class MemberProcessingStage : Stage() {
     private fun processMembers(
         members: List<ASTNode.MemberDeclaration>?,
         unprocessedType: MutableType,
-        typeGetter: TypeGetter
+        typeResolver: AbstractTypeResolver
     ) {
         members?.forEach {
             when (it) {
                 is ASTNode.SingleTypedVariable -> {
                     unprocessedType.fields += processVariable(
-                        typeGetter,
+                        typeResolver,
                         it.type,
                         it.name,
                         it.defaultValue,
-                        unprocessedType
+                        unprocessedType,
+                        it.modifiers ?: listOf()
                     )
                 }
 
                 is ASTNode.MultiVariableDeclaration -> {
                     unprocessedType.fields += it.variables.map { v ->
                         processVariable(
-                            typeGetter,
+                            typeResolver,
                             v.type,
                             v.name,
                             v.defaultValue,
-                            unprocessedType
+                            unprocessedType,
+                            it.modifiers ?: listOf()
                         )
                     }
                 }
 
                 is ASTNode.FunctionDeclaration -> {
-                    unprocessedType.methods += processFunction(typeGetter, it, unprocessedType)
+                    unprocessedType.methods += processFunction(typeResolver, it, unprocessedType)
                 }
 
                 is ASTNode.ConstructorDeclaration -> {
-                    unprocessedType.methods += processConstructor(typeGetter, it, unprocessedType)
+                    unprocessedType.methods += processConstructor(typeResolver, it, unprocessedType)
                 }
 
                 is ASTNode.OperatorDeclaration -> {
-                    unprocessedType.methods += processOperator(typeGetter, it, unprocessedType)
+                    unprocessedType.methods += processOperator(typeResolver, it, unprocessedType)
                 }
 
                 is ASTNode.UnpackingVariableDeclaration ->
@@ -209,49 +212,56 @@ class MemberProcessingStage : Stage() {
         }
     }
 
-    @Suppress("DuplicatedCode")
     private fun processFunction(
-        typeGetter: TypeGetter,
+        typeResolver: AbstractTypeResolver,
         decl: ASTNode.FunctionDeclaration,
         type: MutableType
     ): MutableMethod {
         val method = MutableMethod(
             type,
-            decl.name
+            decl.name,
+            accessFlags = decl.modifiers?.map { AccessFlag.valueOf(it::class.simpleName!!.uppercase()) }?.toMutableList() ?: mutableListOf()
         )
 
         method.typeParameters = decl.typeParams
             ?.map {
-                TypeParameter.of(it.name, it.bound?.let(typeGetter::getType) ?: Types.OBJECT)
+                TypeParameter.of(it.name, it.bound?.let(typeResolver::getType) ?: Types.OBJECT)
             }
             ?.toMutableList()
             ?: mutableListOf()
 
-        val methodTypeGetter = TypeGetter(
-            typeGetter,
+        val methodTypeResolver = typeResolverFactory.get()(
+            typeResolver,
             method.typeParameters.map(TypeParameter::toTemplate).toSet()
         )
 
-        method.parameters += processParameters(decl.parameters, methodTypeGetter)
+        method.parameters += processParameters(decl.parameters, methodTypeResolver)
 
         decl.returnType
-            ?.let { typeGetter.getType(it) }
+            ?.let { typeResolver.getType(it) }
             ?.also { method.returnType = it }
 
         decl.codeBlock
-            ?.let { CodeBlockAttribute(it) }
+            ?.let { CodeBlockAttribute(it, methodTypeResolver) }
             ?.also { method.attributes += it }
+
+        if (type.isInterface) {
+            method.accessFlags += AccessFlag.PUBLIC
+        }
+        if (decl.codeBlock == null) {
+            method.accessFlags += AccessFlag.ABSTRACT
+        }
 
         return method
     }
 
     private fun processParameters(
         parameters: List<ASTNode.Parameter>,
-        methodTypeGetter: TypeGetter
+        methodTypeResolver: AbstractTypeResolver
     ): List<Parameter> = parameters.map {
         Parameter.of(
             it.name,
-            methodTypeGetter.getType(it.type),
+            methodTypeResolver.getType(it.type),
             it.defaultValue
                 ?.let { expr -> DefaultValueAttribute(expr) }
                 ?.let { attr -> arrayOf(attr) }
@@ -260,13 +270,14 @@ class MemberProcessingStage : Stage() {
     }
 
     private fun processConstructor(
-        typeGetter: TypeGetter,
+        typeGetter: AbstractTypeResolver,
         decl: ASTNode.ConstructorDeclaration,
         type: MutableType
     ): MutableMethod {
         val method = MutableMethod(
             type,
-            "<init>"
+            "<init>",
+            accessFlags = decl.modifiers?.map { AccessFlag.valueOf(it::class.simpleName!!.uppercase()) }?.toMutableList() ?: mutableListOf()
         )
 
         method.typeParameters = decl.typeParams
@@ -276,7 +287,7 @@ class MemberProcessingStage : Stage() {
             ?.toMutableList()
             ?: mutableListOf()
 
-        val methodTypeGetter = TypeGetter(
+        val methodAbstractTypeResolver = typeResolverFactory.get()(
             typeGetter,
             method.typeParameters.map(TypeParameter::toTemplate).toSet()
         )
@@ -284,7 +295,7 @@ class MemberProcessingStage : Stage() {
         method.parameters += decl.parameters?.map {
             Parameter.of(
                 it.name,
-                methodTypeGetter.getType(it.type),
+                methodAbstractTypeResolver.getType(it.type),
                 it.defaultValue
                     ?.let { expr -> DefaultValueAttribute(expr) }
                     ?.let { attr -> arrayOf(attr) }
@@ -292,22 +303,22 @@ class MemberProcessingStage : Stage() {
             )
         } ?: emptyList()
 
-        CodeBlockAttribute(decl.codeBlock)
+        CodeBlockAttribute(decl.codeBlock, methodAbstractTypeResolver)
             .also { method.attributes += it }
 
         return method
     }
 
-    // i can't get rid of it so yeah
-    @Suppress("DuplicatedCode")
+    // I can't get rid of it so yeah
     private fun processOperator(
-        typeGetter: TypeGetter,
+        typeGetter: AbstractTypeResolver,
         decl: ASTNode.OperatorDeclaration,
         type: MutableType
     ): MutableMethod {
         val method = MutableMethod(
             type,
-            decl.name.value
+            decl.name.value,
+            accessFlags = decl.modifiers?.map { AccessFlag.valueOf(it::class.simpleName!!.uppercase()) }?.toMutableList() ?: mutableListOf()
         )
 
         method.typeParameters = decl.typeParams
@@ -317,7 +328,7 @@ class MemberProcessingStage : Stage() {
             ?.toMutableList()
             ?: mutableListOf()
 
-        val methodTypeGetter = TypeGetter(
+        val methodAbstractTypeResolver = typeResolverFactory.get()(
             typeGetter,
             method.typeParameters.map(TypeParameter::toTemplate).toSet()
         )
@@ -325,7 +336,7 @@ class MemberProcessingStage : Stage() {
         method.parameters += decl.parameters.map {
             Parameter.of(
                 it.name,
-                methodTypeGetter.getType(it.type),
+                methodAbstractTypeResolver.getType(it.type),
                 it.defaultValue
                     ?.let { expr -> DefaultValueAttribute(expr) }
                     ?.let { attr -> arrayOf(attr) }
@@ -338,7 +349,7 @@ class MemberProcessingStage : Stage() {
             ?.also { method.returnType = it }
 
         decl.codeBlock
-            ?.let { CodeBlockAttribute(it) }
+            ?.let { CodeBlockAttribute(it, methodAbstractTypeResolver) }
             ?.also { method.attributes += it }
 
         method.attributes += OperatorTemplate
@@ -347,18 +358,20 @@ class MemberProcessingStage : Stage() {
     }
 
     private fun processVariable(
-        typeGetter: TypeGetter,
+        typeGetter: AbstractTypeResolver,
         variableType: ASTNode.TypeExpr,
         variableName: String,
         defaultValue: ASTNode.Expression?,
-        unprocessedType: MutableType
+        unprocessedType: MutableType,
+        modifiers: List<ASTNode.Modifier>
     ): MutableField {
         val fieldType = typeGetter.getType(variableType)
 
         val field = MutableField(
             unprocessedType,
             variableName,
-            fieldType
+            fieldType,
+            accessFlags = modifiers.map { AccessFlag.valueOf(it::class.simpleName!!.uppercase()) }.toMutableList()
         )
 
         defaultValue
@@ -368,9 +381,10 @@ class MemberProcessingStage : Stage() {
         return field
     }
 
-    private fun getTypeGetter(type: ProcessedType) = TypeGetter(
+    private fun getTypeResolver(type: ProcessedType) = typeResolverFactory.get()(
         availableTypes[type.file]!! +
-            type.type.typeParameters().map(TypeParameter::toTemplate).toSet()
+            type.type.typeParameters().map(TypeParameter::toTemplate).toSet() +
+            type.file.imports.types.values
     )
 
     private fun AurumFile.importedTypes(): List<Type> = processedTypes.get().map(ProcessedType::type)
