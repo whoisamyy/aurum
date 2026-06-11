@@ -1,8 +1,8 @@
 package aurum.lang.model.impl;
 
 import aurum.lang.model.*;
+import aurum.lang.model.factory.TypeFactory;
 import aurum.lang.model.util.ParametrizedMethodPool;
-import aurum.lang.model.util.ParametrizedTypePool;
 import org.jetbrains.annotations.NotNull;
 
 import java.lang.reflect.AccessFlag;
@@ -37,19 +37,18 @@ public class Utils {
         var tArgsOpt = type.typeArguments();
         if (tArgsOpt.length == 0) return type;
 
-        var oldArgs = tArgsOpt;
-        var newArgs = new TypeArgument[oldArgs.length];
+        var newArgs = new TypeArgument[tArgsOpt.length];
         boolean changed = false;
-        for (int i = 0; i < oldArgs.length; i++) {
-            var a = oldArgs[i];
+        for (int i = 0; i < tArgsOpt.length; i++) {
+            var a = tArgsOpt[i];
             Type newBound = replaceTemplates(a.bound(), typeMap);
-            newArgs[i] = new TypeArgumentImpl(a.name(), newBound);
+            newArgs[i] = TypeArgumentImpl.of(a.name(), newBound);
             if (newBound != a.bound()) changed = true;
         }
 
         if (!changed) return type;
 
-        return new TypeImpl(
+        return TypeFactory.TypePool.getOrCompute(
                 type.className(),
                 type.pkg(),
                 type.superClass(),
@@ -150,7 +149,7 @@ public class Utils {
         int argIdx = 0;
         for (int i = 0; i < tps.length && argIdx < n; i++) {
             if (tps[i] != null) {
-                args[argIdx] = new TypeArgumentImpl(tps[i].name(), typeArguments[argIdx]);
+                args[argIdx] = TypeArgumentImpl.of(tps[i].name(), typeArguments[argIdx]);
                 argIdx++;
             }
         }
@@ -216,7 +215,7 @@ public class Utils {
         Method[] oldMethods = type.methods();
         Method[] newMethods = new Method[oldMethods.length];
 
-        TypeImpl newType = new TypeImpl(
+        @NotNull Type newType = TypeFactory.TypePool.getOrCompute(
                 type.className(),
                 type.pkg(),
                 newSuperClass,
@@ -244,8 +243,8 @@ public class Utils {
             Type newFieldType = replaceTemplates(f.type(), typeMap);
             newFields[i] = new FieldImpl(newType, f.name(), newFieldType, f.attributes(), f.accessFlags());
         }
-
-        ParametrizedTypePool.addType(type, newType);
+        TypeFactory.TypePool.add(newType);
+//        ParametrizedTypePool.addType(type, newType);
 
         return newType;
     }
@@ -281,7 +280,7 @@ public class Utils {
         for (int j = 0; j < method.typeParameters().length; j++) {
             var tp = method.typeParameters()[j];
             Type newBound = replaceTemplates(tp.bound(), typeMap);
-            newMethodTypeParams[j] = new TypeParameterImpl(tp.name(), newBound);
+            newMethodTypeParams[j] = TypeParameterImpl.of(tp.name(), newBound);
         }
 
         MethodImpl newMethod = new MethodImpl(
@@ -307,7 +306,7 @@ public class Utils {
         int n = Math.min(tps.length, typeArguments.length);
         TypeArgument[] args = new TypeArgument[n];
         for (int i = 0; i < n; i++) {
-            args[i] = new TypeArgumentImpl(tps[i].name(), typeArguments[i]);
+            args[i] = TypeArgumentImpl.of(tps[i].name(), typeArguments[i]);
         }
         return applyTypeArguments(method, newOwner, args);
     }
