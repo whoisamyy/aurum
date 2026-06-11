@@ -4,33 +4,26 @@ import aurum.lang.cli.args.Argument;
 import aurum.lang.cli.args.Arguments;
 import aurum.lang.cli.args.SourcesArgument;
 import aurum.lang.cli.args.Target;
-import aurum.lang.cli.aurum.lang.cli.ArgumentGroup;
-import aurum.lang.cli.aurum.lang.cli.CLI;
-import aurum.lang.cli.aurum.lang.cli.Command;
-import aurum.lang.compiler.frontend.OutputStage;
 import aurum.lang.compiler.frontend.Pipeline;
-import aurum.lang.compiler.frontend.stages.CompilationContext;
-import aurum.lang.compiler.frontend.stages.CompilationData;
-import aurum.lang.compiler.frontend.stages.Source;
-import aurum.lang.compiler.frontend.stages.SourceRetrievingStage;
+import aurum.lang.compiler.frontend.stages.*;
 import aurum.lang.compiler.frontend.stages.analyzing.*;
+import aurum.lang.compiler.frontend.stages.compiling.CompilingStage;
+import aurum.lang.compiler.frontend.stages.linking.LinkerInjectionStage;
+import aurum.lang.compiler.frontend.stages.linking.LinkingStage;
+import aurum.lang.compiler.frontend.stages.optimization.OptimizationStage;
+import aurum.lang.compiler.frontend.stages.output.OutputStage;
 import aurum.lang.compiler.frontend.stages.parsing.ParsingStage;
 import aurum.lang.compiler.frontend.stages.parsing.TokenizationStage;
+import aurum.lang.compiler.frontend.stages.translating.TranslationStage;
+import aurum.lang.compiler.frontend.stages.translating.TranslatorInjectionStage;
+import aurum.lang.compiler.frontend.stages.typeresolving.TypeResolverInjectionStage;
 
+import java.util.Objects;
 import java.util.Set;
 
 @Command
 public class Main {
     @ArgumentGroup(types = {
-//            ClassPathArgument.class,
-//            ParserArgument.PrintStackTrace.class,
-//            ParserArgument.GenerateIRFiles.class,
-//            ParserArgument.VerboseIR.class,
-//            OptimisationLevel.O1.class,
-//            OptimisationLevel.O2.class,
-//            OptimisationLevel.O3.class,
-//            OptimisationLevel.ORAW.class,
-//            OptimisationLevel.Custom.class,
             Target.class,
             SourcesArgument.class,
     })
@@ -54,7 +47,9 @@ public class Main {
 
         var ctx = new CompilationContext();
         ctx.put(new Source(getSourcesArg().sources().stream().findFirst().orElseThrow()));
-        ctx.put(new CompilationData(getSourcesArg().workDir(), getSourcesArg().output(), 0));
+        ctx.put(new CompilationData(getSourcesArg().workDir(), getSourcesArg().output(), 3));
+        Target target = Objects.requireNonNullElse(Arguments.get(Target.class), Target.JVM);
+        ctx.put(new TargetArtifact(target.name(), target.extension));
 
         ctx.registerContext();
 
@@ -68,6 +63,14 @@ public class Main {
         Pipeline.registerStage(MemberProcessingStage.class);
         Pipeline.registerStage(OperatorResolvingStage.class);
         Pipeline.registerStage(OutputStage.class);
+        Pipeline.registerStage(CompilingStage.class);
+        Pipeline.registerStage(TypeResolverInjectionStage.class);
+        Pipeline.registerStage(LinkingStage.class);
+        Pipeline.registerStage(LinkerInjectionStage.class);
+        Pipeline.registerStage(OptimizationStage.class);
+        Pipeline.registerStage(TranslatorInjectionStage.class);
+        Pipeline.registerStage(TranslationStage.class);
+        Pipeline.registerStage(PrimaryConstructorResolvingStage.class);
 
         Pipeline.run();
     }
