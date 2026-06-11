@@ -4,7 +4,6 @@ import aurum.lang.model.*;
 import aurum.lang.model.impl.IntersectionTypeImpl;
 import aurum.lang.model.impl.PrimitiveTypeImpl;
 import aurum.lang.model.impl.TypeImpl;
-import kotlin.Pair;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -18,10 +17,10 @@ public final class TypeFactory {
     public static class TypePool {
         private TypePool() {}
 
-        private static final Map<Pair<String, @NotNull TypeArgument @NotNull []>, Type> pool = new HashMap<>();
+        private static final Map<String, Map<@NotNull TypeArgument @NotNull [], Type>> pool = new HashMap<>();
 
         public static boolean contains(String fullName, TypeArgument[] typeArguments) {
-            return pool.containsKey(new Pair<>(fullName, typeArguments));
+            return pool.getOrDefault(fullName, Map.of()).containsKey(typeArguments);
         }
 
         public static boolean contains(String className, String pkg, TypeArgument[] typeArguments) {
@@ -30,9 +29,11 @@ public final class TypeFactory {
 
         public static @Nullable Type get(String fullName) {
             return pool.entrySet().stream()
-                       .filter(kv -> kv.getKey().getFirst().equals(fullName))
-                       .min(Comparator.comparingInt(kv -> kv.getKey().getSecond().length))
+                       .filter(kv -> kv.getKey().equals(fullName))
                        .map(Map.Entry::getValue)
+                       .flatMap(kv -> kv.keySet().stream())
+                       .min(Comparator.comparingInt(arr -> arr.length))
+                       .map(typeArguments -> pool.get(fullName).get(typeArguments))
                        .orElse(null);
         }
 
@@ -42,10 +43,10 @@ public final class TypeFactory {
 
         public static @Nullable Type get(String fullName, TypeArgument[] typeArgs) {
             return pool.entrySet().stream()
-                       .filter(kv -> kv.getKey().getFirst().equals(fullName)
-                               && Arrays.equals(kv.getKey().getSecond(), typeArgs))
+                       .filter(kv -> kv.getKey().equals(fullName))
                        .findFirst()
                        .map(Map.Entry::getValue)
+                       .map(m -> m.get(typeArgs))
                        .orElse(null);
         }
 
@@ -53,8 +54,41 @@ public final class TypeFactory {
             return get("%s.%s".formatted(pkg, className), typeArgs);
         }
 
+        public static @NotNull Type getOrCompute(
+                String className,
+                String pkg,
+                Type superClass,
+                @NotNull Type @NotNull [] interfaces,
+                Field[] fields,
+                Method[] methods,
+                AccessFlag[] accessFlags,
+                Attribute[] attributes,
+                @NotNull TypeParameter @NotNull [] typeParameters,
+                @NotNull TypeArgument @NotNull [] typeArguments
+        ) {
+            String fullName = "%s.%s".formatted(pkg, className);
+            return pool.computeIfAbsent(fullName, _ -> new HashMap<>())
+                        .computeIfAbsent(
+                                typeArguments,
+                                _ ->
+                                        new TypeImpl(
+                                                className,
+                                                pkg,
+                                                superClass,
+                                                interfaces,
+                                                fields,
+                                                methods,
+                                                accessFlags,
+                                                attributes,
+                                                typeParameters,
+                                                typeArguments
+                                        )
+                        );
+        }
+
         public static Type add(Type type) {
-            return pool.computeIfAbsent(new Pair<>(type.fullName(), type.typeArguments()), _ -> type);
+            return pool.computeIfAbsent(type.fullName(), _ -> new HashMap<>())
+                       .computeIfAbsent(type.typeArguments(), _ -> type);
         }
     }
 
@@ -93,7 +127,8 @@ public final class TypeFactory {
                 ? aurum.lang.model.impl.Utils.EMPTY_TYPES
                 : new Type[interfaces.length];
 
-        TypeImpl type = new TypeImpl(
+
+        TypeImpl type = (TypeImpl) TypePool.getOrCompute(
                 clazz.getName().substring(clazz.getName().lastIndexOf('.')+1),
                 clazz.getPackageName(),
                 null,
@@ -159,8 +194,8 @@ public final class TypeFactory {
         Method[] methodsArray = methods.toArray(Method[]::new);
         
         // Filter out any nulls that might have slipped through and create properly sized arrays
-        Field[] nonNullFieldsArray = Arrays.stream(fieldsArray).filter(f -> f != null).toArray(Field[]::new);
-        Method[] nonNullMethodsArray = Arrays.stream(methodsArray).filter(m -> m != null).toArray(Method[]::new);
+        Field[] nonNullFieldsArray = Arrays.stream(fieldsArray).filter(Objects::nonNull).toArray(Field[]::new);
+        Method[] nonNullMethodsArray = Arrays.stream(methodsArray).filter(Objects::nonNull).toArray(Method[]::new);
         
         // Replace arrays with correctly sized ones using reflection (fields and methods are final)
         try {
