@@ -186,7 +186,7 @@ interface ASTNode {
                 " => " + codeBlock
     }
 
-    class LambdaParameter (
+    data class LambdaParameter (
         val name: String,
         val type: TypeExpr?
     ) : ASTNode {
@@ -195,18 +195,18 @@ interface ASTNode {
 
     class BinaryExpression (
         val expressions: List<Expression>,
-        val operators: List<Token.OperatorSymbol>?
+        val operators: List<Token.OperatorSymbol>
     ) : RValueExpression {
         init {
-            if ((operators?.size ?: 0) != expressions.size - 1)
+            if (operators.size != expressions.size - 1)
                 error("Operator count should be one less than expressions count")
         }
 
         override fun toString(): String {
-            if (operators == null)
+            if (operators.isEmpty())
                 return expressions[0].toString()
 
-            return expressions.zip(operators).joinToString { (expr, op) -> "$expr $op " } + expressions.last()
+            return expressions.zip(operators).joinToString(" ", postfix = " ") { (expr, op) -> "$expr $op" } + expressions.last()
         }
     }
 
@@ -244,11 +244,11 @@ interface ASTNode {
 
     class IndexAccess (
         val expression: Expression,
-        val arguments: List<Expression>?
+        val arguments: List<Expression>
     ) : LValueExpression, RValueExpression {
         override fun toString(): String =
-            "$expression${arguments?.joinToString(", ", "[", "]")
-                ?: error("Expected at least one argument. Got none")}"
+            if (arguments.isEmpty()) error("Expected at least one argument. Got none")
+            else "$expression${arguments.joinToString(", ", "[", "]")}"
     }
 
     // ==========================================
