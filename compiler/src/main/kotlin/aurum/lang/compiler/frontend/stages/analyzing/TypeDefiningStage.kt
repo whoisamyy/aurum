@@ -1,10 +1,12 @@
 package aurum.lang.compiler.frontend.stages.analyzing
 
+import aurum.lang.compiler.frontend.model.MutableMethod
 import aurum.lang.compiler.frontend.model.MutablePackage
 import aurum.lang.compiler.frontend.model.MutableType
 import aurum.lang.compiler.frontend.model.MutableTypePool
 import aurum.lang.compiler.frontend.stages.*
 import aurum.lang.compiler.frontend.stages.parsing.ASTNode
+import aurum.lang.model.attribute.PrimaryConstructorAttribute
 import java.lang.reflect.AccessFlag
 
 class TypeDefiningStage : Stage() {
@@ -25,7 +27,10 @@ class TypeDefiningStage : Stage() {
     private fun processPackage(pkg: PackageArtifact): Pair<MutablePackage, Set<TypeDefinition>> {
         val mutablePkg = MutablePackage(pkg.path.joinToString("."))
 
-        val definedTypes = pkg.files.flatMap(::processFile)
+        val definedTypes = pkg.files.flatMap(::processFile).toMutableList()
+
+        definedTypes += pkg.files.map(::processFileType)
+
         definedTypes
             .map(TypeDefinition::type)
             .forEach {
@@ -38,19 +43,42 @@ class TypeDefiningStage : Stage() {
         return mutablePkg to definedTypes.toSet()
     }
 
+    private fun processFileType(file: AurumFile): TypeDefinition {
+        val topLevelDeclarations = file.ast
+            .filterIsInstance<ASTNode.TopLevelDeclaration>()
+            .filter { it !is ASTNode.TypeDeclaration }
+            .filterIsInstance<ASTNode.MemberDeclaration>()
+
+        val type = MutableTypePool.get(
+            "$",
+            file.pkg
+        )
+
+        if (type.methods.none { it.name() == "<init>" }) {
+            type.methods += MutableMethod(
+                type,
+                "<init>",
+                attributes = mutableListOf(PrimaryConstructorAttribute)
+            )
+        }
+
+        val declaration = ASTNode.ClassDeclaration(
+            name = "${file.pkg}.&",
+            members = topLevelDeclarations
+        )
+
+        return TypeDefinition(type, declaration, file)
+    }
+
     private fun processFile(file: AurumFile): Set<TypeDefinition> {
         val topLevelDeclarations = file.ast.filterIsInstance<ASTNode.TypeDeclaration>()
         val types = mutableMapOf<MutableType, ASTNode.TypeDeclaration>()
 
-        // todo: add file types and etc
-//        val fileType = MutableTypePool.get(
-//            file.path.nameWithoutExtension,
-//            file.pkg
-//        )
-
         processDeclarations(topLevelDeclarations, file, types)
 
-        return types.map { (type, declaration) -> TypeDefinition(type, declaration, file) }.toSet()
+        return types.map { (type, declaration) ->
+            TypeDefinition(type, declaration, file)
+        }.toSet()
     }
 
     private fun processDeclarations(
