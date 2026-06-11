@@ -72,6 +72,13 @@ class ParserTest {
     }
 
     @Test
+    fun `parseTypeArg wildcard with colon`() {
+        val input = "? : Entity"
+        val result = parse(input) { it.parseTypeArg() }.toString()
+        assertEquals("? : Entity", result)
+    }
+
+    @Test
     fun `parseTypeExpr with generics and wildcards`() {
         val input = "Map[String, ? extends Entity]"
         val result = parse(input) { it.parseTypeExpr() }.toString()
@@ -99,7 +106,7 @@ class ParserTest {
     }
 
     @Test
-    fun `parseExpression parses collections and named tuples`() {
+    fun `parseExpression collections and named tuples`() {
         assertEquals("[]", parse("[]") { it.parseExpression() }.toString())
         assertEquals("[:]", parse("[:]") { it.parseExpression() }.toString())
         assertEquals("[1, 2, 3]", parse("[1, 2, 3]") { it.parseExpression() }.toString())
@@ -177,5 +184,53 @@ class ParserTest {
 
         val result = parse(input) { it.parseExpression() }
         assert(result is ASTNode.FunctionCall)
+    }
+
+    @Test
+    fun `parseExpression newline paren as another expression after binary`() {
+        val input = """
+            a + b
+            (c + d)
+        """.trimIndent()
+        val result = parse(input) { it.parseExpression() }
+        assertEquals("a + b", result.toString())
+    }
+
+    @Test
+    fun `parseExpression newline call on identifier`() {
+        val input = """
+            foo
+            (1, 2)
+        """.trimIndent()
+        val result = parse(input) { it.parseExpression() }
+        assertEquals("foo(1, 2)", result.toString())
+    }
+
+    @Test
+    fun `parseExpression newline between statements`() {
+        val input = """
+            a + b
+            c + d
+        """.trimIndent()
+        val result = parse(input) { it.parseExpression() }
+        assertEquals("a + b", result.toString())
+    }
+
+    @Test
+    fun `parseExpression stop at semicolon`() {
+        val result = parse("a + b; c + d") { it.parseExpression() }
+        assertEquals("a + b", result.toString())
+    }
+
+    @Test
+    fun `parseCodeBlock statements separated by newline`() {
+        val input = """
+            {
+                let x = 1
+                let y = 2
+            }
+        """.trimIndent()
+        val block = parse(input) { it.parseCodeBlock()!! } as ASTNode.PlainBlock
+        assertEquals(2, block.statements!!.size)
     }
 }
