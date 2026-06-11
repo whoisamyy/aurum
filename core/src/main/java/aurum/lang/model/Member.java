@@ -6,5 +6,5 @@ public interface Member extends Accessible, Attributable {
     @NotNull Type owner();
     @NotNull String name();
 
-    @NotNull Member asDefaultTypedMember();
+    @NotNull Member asGenericallyUntypedMember();
 }

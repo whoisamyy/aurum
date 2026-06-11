@@ -6,7 +6,7 @@ public interface Field extends Member {
     @NotNull Type type();
 
     @Override
-    default @NotNull Field asDefaultTypedMember() {
+    default @NotNull Field asGenericallyUntypedMember() {
         return owner().withDefaultTypeArguments().findField(name()).orElseThrow();
     }
 }
