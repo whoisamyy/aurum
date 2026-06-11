@@ -103,6 +103,7 @@ abstract class AbstractBiMap<K : Any, V : Any> protected constructor(
         return direct.isEmpty()
     }
 
+    @Suppress("JavaDefaultMethodsNotOverriddenByDelegation")
     private inner class BiMapSet<T : Any>(
         private val elements: MutableSet<T>,
         private val keyGetter: (T) -> K,
