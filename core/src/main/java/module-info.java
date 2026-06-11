@@ -10,6 +10,5 @@ module aurum.core {
     opens aurum.lang.model;
 
     requires kotlin.stdlib;
-    requires kotlin.reflect;
     requires org.jetbrains.annotations;
 }
