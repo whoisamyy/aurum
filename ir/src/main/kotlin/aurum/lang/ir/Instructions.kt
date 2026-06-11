@@ -1,8 +1,7 @@
-@file:Suppress("ConstPropertyName")
-
 package aurum.lang.ir
 
 import aurum.lang.model.*
+import aurum.lang.model.attribute.BinaryOperator
 import java.io.DataOutputStream
 
 const val CONSTANT_POOL_ELEMENT_SIZE: Int = 2
@@ -165,7 +164,7 @@ data class FieldGroupRef (
     }
 
     override fun toString(): String {
-        return "(${refs.joinToString(", ") { "#${it.ref}" }})"
+        return "#(${refs.joinToString(", ") { "#${it.ref}" }})"
     }
 }
 
@@ -193,7 +192,7 @@ data class MethodGroupRef (
     }
 
     override fun toString(): String {
-        return "(${refs.joinToString(", ") { "#${it.ref}" }})"
+        return "#(${refs.joinToString(", ") { "#${it.ref}" }})"
     }
 }
 
@@ -213,7 +212,7 @@ data class MemberGroupRef (
     }
 
     override fun toString(): String {
-        return "(${refs.joinToString(", ") { "#$it" }})"
+        return "#(${refs.joinToString(", ") { "$it" }})"
     }
 }
 
@@ -249,6 +248,9 @@ data class Null (
     override fun write(out: DataOutputStream) {
         out.writeByte(code)
     }
+
+    override fun toString(): String =
+        "$target = null"
 }
 
 data class Move (
@@ -262,6 +264,9 @@ data class Move (
         target.write(out)
         ref.write(out)
     }
+
+    override fun toString(): String =
+        "$target = $ref"
 }
 
 data class BinaryOp (
@@ -269,7 +274,7 @@ data class BinaryOp (
     val left: RValue,
     val right: RValue,
     val operator: BinaryOperator
-) : Instruction.WithAssignment(operator.defaultOpcode!!), TargetRef {
+) : Instruction.WithAssignment(Operators.OPERATOR_OPCODES[operator]!!), TargetRef {
     override fun size(): Int = target.size() + left.size() + right.size()
     override fun write(out: DataOutputStream) {
         out.writeByte(code)
@@ -277,6 +282,9 @@ data class BinaryOp (
         left.write(out)
         right.write(out)
     }
+
+    override fun toString(): String =
+        "$target = ${operator.symbol} $left $right"
 }
 
 data class Neg (
@@ -289,6 +297,9 @@ data class Neg (
         target.write(out)
         ref.write(out)
     }
+
+    override fun toString(): String =
+        "$target = neg $ref"
 }
 
 data class Jump (
@@ -299,6 +310,9 @@ data class Jump (
         out.writeByte(code)
         label.write(out)
     }
+
+    override fun toString(): String =
+        "jump to $label"
 }
 
 data class JumpIf (
@@ -311,6 +325,24 @@ data class JumpIf (
         cond.write(out)
         label.write(out)
     }
+
+    override fun toString(): String =
+        "jumpif $cond to $label"
+}
+
+data class JumpIfN (
+    val cond: RValue,
+    val label: Label
+) : Instruction(Opcode.JumpIfN) {
+    override fun size(): Int = cond.size() + label.size()
+    override fun write(out: DataOutputStream) {
+        out.writeByte(code)
+        cond.write(out)
+        label.write(out)
+    }
+
+    override fun toString(): String =
+        "jumpifn $cond to $label"
 }
 
 data class Return (
@@ -321,6 +353,9 @@ data class Return (
         out.writeByte(code)
         value?.write(out)
     }
+
+    override fun toString(): String =
+        "return $value"
 }
 
 data class Throw (
@@ -331,6 +366,9 @@ data class Throw (
         out.writeByte(code)
         ref.write(out)
     }
+
+    override fun toString(): String =
+        "throw $ref"
 }
 
 data class TryBegin (
@@ -343,11 +381,17 @@ data class TryBegin (
         labelCatch.write(out)
         labelFinally?.write(out)
     }
+
+    override fun toString(): String =
+        "tryBegin catch $labelCatch${if (labelFinally!=null) "finally $labelFinally" else ""}"
 }
 
 class TryEnd : Instruction(Opcode.TryEnd) {
-    override fun size(): Int = 0
+    override fun size(): Int = OPCODE_SIZE
     override fun write(out: DataOutputStream) = out.writeByte(code)
+
+    override fun toString(): String =
+        "tryEnd"
 }
 
 data class Catch (
@@ -362,6 +406,9 @@ data class Catch (
         exceptionVar.write(out)
         labelEnd.write(out)
     }
+
+    override fun toString(): String =
+        "catch $exceptionVar $labelEnd"
 }
 
 data class Call (
@@ -377,6 +424,9 @@ data class Call (
         out.writeShort(args.size)
         args.forEach { it.write(out) }
     }
+
+    override fun toString(): String =
+        "$target = call $method $args"
 }
 
 data class CallMethod (
@@ -394,6 +444,9 @@ data class CallMethod (
         out.writeShort(args.size)
         args.forEach { it.write(out) }
     }
+
+    override fun toString(): String =
+        "$target = callMethod $method $obj $args"
 }
 
 data class CallVirtual (
@@ -411,6 +464,9 @@ data class CallVirtual (
         out.writeShort(args.size)
         args.forEach { it.write(out) }
     }
+
+    override fun toString(): String =
+        "$target = callVirtual $method $obj $args"
 }
 
 data class InvokeConstructor (
@@ -424,6 +480,9 @@ data class InvokeConstructor (
         out.writeShort(args.size)
         args.forEach { it.write(out) }
     }
+
+    override fun toString(): String =
+        "init $obj $args"
 }
 
 data class Closure (
@@ -439,6 +498,9 @@ data class Closure (
         out.writeShort(captured.size)
         captured.forEach { it.write(out) }
     }
+
+    override fun toString(): String =
+        "$target = closure of $func with $captured"
 }
 
 data class New (
@@ -451,6 +513,9 @@ data class New (
         target.write(out)
         classRef.write(out)
     }
+
+    override fun toString(): String =
+        "$target = new $classRef"
 }
 
 data class NewArray (
@@ -465,6 +530,9 @@ data class NewArray (
         elementType.write(out)
         sizeRef.write(out)
     }
+
+    override fun toString(): String =
+        "$target = arrayOf $elementType $sizeRef"
 }
 
 data class GetField (
@@ -479,6 +547,9 @@ data class GetField (
         obj.write(out)
         field.write(out)
     }
+
+    override fun toString(): String =
+        "$target = $obj @ $field"
 }
 
 data class PutField (
@@ -493,6 +564,9 @@ data class PutField (
         field.write(out)
         value.write(out)
     }
+
+    override fun toString(): String =
+        "put $value in $obj @ $field"
 }
 
 data class GetMember (
@@ -508,6 +582,9 @@ data class GetMember (
         obj.write(out)
         member.write(out)
     }
+
+    override fun toString(): String =
+        "$target = member $member of $obj"
 }
 
 data class GetMethod (
@@ -523,22 +600,12 @@ data class GetMethod (
         obj.write(out)
         method.write(out)
     }
+
+    override fun toString(): String =
+        "$target = method $method of $obj"
 }
 
-@Deprecated("""Use Closure instead""")
-data class GetMethodStatic (
-    override val target: LValue,
-    val method: MethodRef
-) : Instruction.WithAssignment(Opcode.GetMethodStatic), TargetRef {
-    override fun size(): Int = target.size() + method.size()
-
-    override fun write(out: DataOutputStream) {
-        out.writeByte(code)
-        target.write(out)
-        method.write(out)
-    }
-}
-
+@Deprecated("Use Move with FieldRef as value")
 data class GetStatic (
     override val target: LValue,
     val field: FieldRef
@@ -564,6 +631,9 @@ data class ArrayLoad (
         array.write(out)
         index.write(out)
     }
+
+    override fun toString(): String =
+        "$target = $array @ $index"
 }
 
 data class ArrayStore (
@@ -578,6 +648,9 @@ data class ArrayStore (
         index.write(out)
         value.write(out)
     }
+
+    override fun toString(): String =
+        "store $value in $array @ $index"
 }
 
 data class Cast (
@@ -592,6 +665,9 @@ data class Cast (
         ref.write(out)
         type.write(out)
     }
+
+    override fun toString(): String =
+        "$target = $ref cast $type"
 }
 
 data class InstanceOf (
@@ -606,6 +682,9 @@ data class InstanceOf (
         ref.write(out)
         type.write(out)
     }
+
+    override fun toString(): String =
+        "$target = $ref instanceOf $type"
 }
 
 data class TypeOf (
@@ -618,6 +697,8 @@ data class TypeOf (
         target.write(out)
         ref.write(out)
     }
+
+    override fun toString(): String = "$target = typeOf $ref"
 }
 
 data class LabelInst (
@@ -632,7 +713,6 @@ data class LabelInst (
     override fun toString(): String {
         return "$label:"
     }
-
 }
 
 data class Switch (
@@ -651,21 +731,9 @@ data class Switch (
         }
         defaultLabel.write(out)
     }
-}
 
-data class Phi (
-    override val target: LValue,
-    val incoming: Map<Label, Reference.Named>
-) : Instruction.WithAssignment(Opcode.Phi), TargetRef {
-    override fun size(): Int = target.size() + incoming.entries.sumOf { it.key.size() + it.value.size() }
-    override fun write(out: DataOutputStream) {
-        out.writeByte(code)
-        target.write(out)
-        out.writeShort(incoming.size)
-        for ((label, ref) in incoming) {
-            label.write(out)
-            ref.write(out)
-        }
+    override fun toString(): String {
+        return "switch $ref $defaultLabel $cases"
     }
 }
 
@@ -675,4 +743,7 @@ object Nop : Instruction(Opcode.Nop) {
     override fun write(out: DataOutputStream) {
         out.writeByte(code)
     }
+
+    override fun toString(): String =
+        "nop"
 }
