@@ -14,7 +14,7 @@ enum class TokenType(
 ) : ((Int, Int) -> Token) by tokenConstructor {
     Number(Regex("[+-]?(0b[01]+[lL]?|0[0-8]+[lL]?|0x[\\da-fA-F]+[lL]?|\\d+\\.\\d+[dDfF]?|\\d+[fFdDlL]?)"), constructor<Token.Number>()),
     String(Regex("(\".*?\")|(\'.*?\')"), constructor<Token.String>()),
-    Identifier(Regex("[\\w$]+"), constructor<Token.Identifier>()),
+    Identifier(Regex("[a-zA-Z_$]\\w*"), constructor<Token.Identifier>()),
     OperatorSymbol(Regex("[+\\-*/\\\\%|&!?~^<>=]+|as|is|\\[]|\\(\\)"), constructor<Token.OperatorSymbol>()),
     Comment(Regex("#.*|#\\*[\\s\\S]+\\*#"), constructor<Token.Comment>()),
 
