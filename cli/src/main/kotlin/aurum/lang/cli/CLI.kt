@@ -1,490 +1,295 @@
-package aurum.lang.cli.aurum.lang.cli
+package aurum.lang.cli
 
 import java.lang.reflect.Field
-import java.lang.reflect.Modifier
 import java.lang.reflect.ParameterizedType
 import java.nio.file.Path
 import kotlin.reflect.KClass
 import kotlin.reflect.full.isSubclassOf
-import kotlin.reflect.full.memberProperties
-import kotlin.reflect.jvm.javaField
-
-/**
- * Constructs a group of [Parameters] and [Option]s
- */
-@Retention(AnnotationRetention.RUNTIME)
-@Target(AnnotationTarget.CLASS)
-annotation class Command (
-    vararg val names: String = []
-)
-
-/**
- * Constructs an array of values
- *
- * Parameter args must come first if no names are provided
- */
-@Retention(AnnotationRetention.RUNTIME)
-@Target(AnnotationTarget.FIELD)
-annotation class Parameters (
-    vararg val names: String = []
-)
-
-@Retention(AnnotationRetention.RUNTIME)
-@Target(AnnotationTarget.FIELD, AnnotationTarget.CLASS)
-annotation class Option (
-    vararg val names: String = []
-)
-
-
-/**
- * Constructs a group or option of arguments that are defined in [types].
- *
- * Will construct a group if type of field is [Array], [Set] or [List]
- *
- * Note:
- * - if one of [types] does not have [Option] or [Command] annotation this type will not be processed.
- * - if one of [types] is not subclass of field type this type also won't be processed.
- */
-@Retention(AnnotationRetention.RUNTIME)
-@Target(AnnotationTarget.FIELD)
-annotation class ArgumentGroup (
-    val types: Array<KClass<*>>
-)
-
-private fun KClass<*>.getArgNames(): List<String> {
-    val allAnnotations = this.memberProperties
-        .mapNotNull { it.javaField }
-        .flatMap { it.annotations.toList() }
-
-    val paramNames = mutableListOf<String>()
-
-    paramNames += allAnnotations
-        .mapNotNull { it as? Parameters }
-        .flatMap { it.names.toList() }
-
-    paramNames += allAnnotations
-        .mapNotNull { it as? Option }
-        .flatMap { it.names.toList() }
-
-    paramNames +=
-        this.memberProperties.filter {
-                it.annotations
-                    .any { a -> a is Command }
-                        && it.annotations.any { a -> a is Option }
-            }
-            .mapNotNull { it.annotations.find { a -> a is Command } as? Command }
-            .flatMap { it.names.toList() }
-
-    paramNames +=
-        this.memberProperties.filter { it.annotations.any { a -> a is ArgumentGroup } }
-            .mapNotNull { it.annotations.find { a -> a is ArgumentGroup } as? ArgumentGroup }
-            .flatMap { it.types.flatMap { t -> t.annotations } }
-            .mapNotNull {
-                (it as? Option)?.names ?: (it as? Command)?.names
-            }
-            .flatMap { it.toList() }
-
-    return paramNames
-}
 
 class CLI<T : Any>(
     val target: T,
-    vararg args: String
+    vararg args: String,
 ) {
     val args: MutableList<String> = args.toMutableList()
 
     companion object {
         @Suppress("UNCHECKED_CAST")
-        private val registeredTypeConverters: MutableMap<Class<*>, TypeConverter<*>> = mutableMapOf(
-            String::class.java to StringConverter,
-            Int::class.java to IntConverter,
-            Char::class.java to CharConverter,
-            Long::class.java to LongConverter,
-            Short::class.java to ShortConverter,
-            Byte::class.java to ByteConverter,
-            Boolean::class.java to BooleanConverter,
-            Path::class.java to PathConverter,
-            Float::class.java to FloatConverter,
-            Double::class.java to DoubleConverter,
-            Int::class.javaObjectType to IntConverter,
-            Char::class.javaObjectType to CharConverter,
-            Long::class.javaObjectType to LongConverter,
-            Short::class.javaObjectType to ShortConverter,
-            Byte::class.javaObjectType to ByteConverter,
-            Boolean::class.javaObjectType to BooleanConverter,
-            Float::class.javaObjectType to FloatConverter,
-            Double::class.javaObjectType to DoubleConverter,
-        ) as MutableMap<Class<*>, TypeConverter<*>>
+        private val typeConverters: MutableMap<Class<*>, TypeConverter<*>> = buildMap {
+            fun register(primitive: Class<*>, boxed: Class<*>, converter: TypeConverter<*>) {
+                put(primitive, converter)
+                put(boxed, converter)
+            }
+            register(String::class.java, String::class.java, StringConverter)
+            register(Int::class.javaPrimitiveType!!, Int::class.javaObjectType, IntConverter)
+            register(Char::class.javaPrimitiveType!!, Char::class.javaObjectType, CharConverter)
+            register(Long::class.javaPrimitiveType!!, Long::class.javaObjectType, LongConverter)
+            register(Short::class.javaPrimitiveType!!, Short::class.javaObjectType, ShortConverter)
+            register(Byte::class.javaPrimitiveType!!, Byte::class.javaObjectType, ByteConverter)
+            register(Boolean::class.javaPrimitiveType!!, Boolean::class.javaObjectType, BooleanConverter)
+            register(Float::class.javaPrimitiveType!!, Float::class.javaObjectType, FloatConverter)
+            register(Double::class.javaPrimitiveType!!, Double::class.javaObjectType, DoubleConverter)
+            put(Path::class.java, PathConverter)
+        } as MutableMap<Class<*>, TypeConverter<*>>
 
         @JvmStatic
         @Suppress("UNCHECKED_CAST")
         fun <T : Any, U : TypeConverter<T>> registerTypeConverter(type: Class<T>, converterType: Class<U>) {
-            registeredTypeConverters[type] = converterType.getDeclaredConstructor().newInstance()
+            typeConverters[type] = converterType.getDeclaredConstructor().newInstance()
         }
 
         @JvmStatic
-        @Suppress("UNCHECKED_CAST")
         fun <T : Any> registerTypeConverter(type: Class<T>, converter: TypeConverter<T>) {
-            registeredTypeConverters[type] = converter
+            typeConverters[type] = converter
         }
     }
 
     fun parseArgs(): T {
         val klass = target::class
-        if (klass.annotations.any { it is Command }) {
-            val paramNames = klass.getArgNames()
+        if (klass.annotations.none { it is Command }) return target
 
-            parseArgumentGroup(paramNames)
-            if (args.isNotEmpty())
-                parseCommands(paramNames)
-            if (args.isNotEmpty())
-                parseParameters(paramNames)
-            if (args.isNotEmpty())
-                parseOptions(paramNames)
-        }
-
+        val knownNames = klass.collectArgNames()
+        parseArgumentGroups(knownNames)
+        if (args.isNotEmpty()) parseNestedCommands(knownNames)
+        if (args.isNotEmpty()) parsePositionalParameters(knownNames)
+        if (args.isNotEmpty()) parseOptions(knownNames)
         return target
     }
 
-    private fun parseCommands(
-        paramNames: List<String>
-    ) {
-        target::class.java.declaredFields.filter { it.type.annotations.any { a -> a is Command }
-                && !Modifier.isStatic(it.modifiers)
-                && !Modifier.isPrivate(it.modifiers) }
-            .forEach {
-                val command = it.type.annotations.find{ a -> a is Command } as Command
-                val indexOfFirst = args.indexOfFirst { s -> s in command.names }
-                val argIndex = if (indexOfFirst != -1) indexOfFirst else 0
-                val indexOfFirst1 = args.subList(argIndex, args.size).indexOfFirst { s -> s in paramNames }
-                val endIndex = if (indexOfFirst1 != -1) indexOfFirst1 else args.size
-
-                val newTarget = (it.type as Class<*>).getConstructor().newInstance()
-
-                CLI(newTarget, *args.subList(indexOfFirst1, endIndex).toTypedArray().clone())
-                    .parseArgs()
-
-                if (Modifier.isFinal(it.modifiers))
-                    throw IllegalStateException("todo")
-
-                it.set(target, newTarget)
-            }
+    private fun parseNestedCommands(knownNames: List<String>) {
+        target::class.java.declaredInstanceFields()
+            .filter { it.type.isAnnotationPresent(Command::class.java) }
+            .forEach { field -> parseNestedCommand(field, knownNames) }
     }
 
-    @Suppress("UNCHECKED_CAST")
-    private fun parseOptions(
-        paramNames: List<String>
-    ) {
-        target::class.java.declaredFields.filter { it.annotations.any { a -> a is Option } }
-            .forEach {
-                val parameters = it.annotations.find { a -> a is Option } as Option
-                val names = parameters.names
-                if (Modifier.isFinal(it.modifiers))
-                    throw IllegalStateException("todo")
+    private fun parseNestedCommand(field: Field, knownNames: List<String>) {
+        val command = field.type.getAnnotation(Command::class.java)
+        val commandIndex = args.indexOfFirst { it in command.names.toList() }
+        val sliceStart = if (commandIndex != -1) commandIndex else 0
+        val relativeEnd = args.subList(sliceStart, args.size)
+            .indexOfFirst { it in knownNames }
+        val sliceEnd = if (relativeEnd == -1) args.size else sliceStart + relativeEnd
+        val commandArgs = args.subList(sliceStart, sliceEnd).toTypedArray()
 
-                val value = parseValue(paramNames, args.find { a -> a in names } ?: args[0], names.toList(), it)
-                it.set(target, value)
-            }
+        val nested = field.type.getConstructor().newInstance()
+        CLI(nested, *commandArgs).parseArgs()
+        field.write(target, nested)
     }
 
-    @Suppress("UNCHECKED_CAST")
-    private fun parseArgumentGroup(
-        paramNames: List<String>
-    ) {
-        target::class.java.declaredFields.filter { it.annotations.any { a -> a is ArgumentGroup } }
-            .forEach {
-                val types = (it.annotations.find { a -> a is ArgumentGroup } as ArgumentGroup).types
-                val newParamNames = (
-                        paramNames
-                        + types.flatMap { t -> t.getArgNames() }
-                        + types.flatMap { t -> t.annotations.mapNotNull { a -> a as? Option }.flatMap { a -> a.names.toList() } }
-                        + types.flatMap { t -> t.annotations.mapNotNull { a -> a as? Command }.flatMap { a -> a.names.toList() } }
-                        + types.flatMap { t ->
-                            if (t.java.isEnum) {
-                                (t.java.enumConstants as Array<Enum<*>>).flatMap { e -> listOf(e.name, "-${e.name}") }
-                            } else listOf()
-                        }
-                ).toSet().toList()
+    private fun parseOptions(knownNames: List<String>) {
+        target::class.java.fieldsAnnotatedWith(Option::class.java).forEach { field ->
+            val option = field.getAnnotation(Option::class.java)
+            val token = args.find { it in option.names }
+                ?: run {
+                    if (field.get(target) == null)
+                        error("Could not parse argument ${option.names[0]}")
 
-                val values: MutableList<Any>
-                if (args[0] in (newParamNames)) {
-                    values = types.mapNotNull { t ->
-                        val names = (
-                                types.flatMap { t -> t.annotations.mapNotNull { a -> a as? Option }.flatMap { a -> a.names.toList() } }
-                                + types.flatMap { t -> t.annotations.mapNotNull { a -> a as? Command }.flatMap { a -> a.names.toList() } }
-                        )
-
-                        if (args.isEmpty())
-                            null
-                        else
-                            parseValue(
-                                newParamNames,
-                                args.find { a -> a in names } ?: args[0],
-                                names.toList(),
-                                t.javaObjectType
-                            )
-                    }.toMutableList()
-                } else {
-                    values = mutableListOf()
-
-                    val t = types.find { t ->
-                        (
-                            t.annotations.mapNotNull { a -> a as? Option }.flatMap { a -> a.names.toList() }
-                            + t.annotations.mapNotNull { a -> a as? Command }.flatMap { a -> a.names.toList() }
-                        ).isEmpty() && !t.java.isEnum
-                    }?.let { t ->
-                        val names = t.getArgNames()
-
-                        val value = if (t.annotations.any { a -> a is Command }) {
-                            val newInstance = t.javaObjectType.getConstructor().newInstance()
-                            val subList =
-                                listOf(*args.subList(0, args.indexOfFirst { s -> s in (newParamNames - names.toSet()) }).toTypedArray())
-                            val cli = CLI(
-                                newInstance,
-                                *subList
-                                    .toTypedArray()
-                            )
-                            val value = cli
-                                .parseArgs()
-
-                            this@CLI.args -= subList.toSet()
-
-                            value
-                        } else {
-                            parseValue(
-                                newParamNames,
-                                args.find { a -> a in names } ?: args[0],
-                                names.toList(),
-                                t.javaObjectType
-                            )
-                        }
-                        if (value != null)
-                            values += value
-
-                        t
-                    }
-                    val newTypes = if (t != null) types.toList() - t else types.toList()
-
-                    values.addAll(newTypes.mapNotNull { t ->
-                        val names = (
-                                t.annotations.mapNotNull { a -> a as? Option }.flatMap { a -> a.names.toList() }
-                                + t.annotations.mapNotNull { a -> a as? Command }.flatMap { a -> a.names.toList() }
-                            )
-
-                        if (args.isEmpty() || (!args.any { s -> s in names } && !t.java.isEnum))
-                            null
-                        else {
-                            if (t.annotations.any { a -> a is Command }) {
-                                val newInstance = t.javaObjectType.getConstructor().newInstance()
-                                val fromIndex = args.indexOfLast { s -> s in names }
-                                var toIndex = args.indexOfLast { s -> s in names }
-                                if (toIndex <= 0) toIndex = args.size
-                                CLI(newInstance, *args.subList(fromIndex, toIndex).toTypedArray())
-                                    .parseArgs()
-                            } else {
-                                parseValue(
-                                    newParamNames,
-                                    args.find { a -> a in names } ?: args[0],
-                                    names.toList(),
-                                    t.javaObjectType
-                                )
-                            }
-                        }
-                    })
-
+                    return@forEach
                 }
-                if (it.type.isArray) {
-                    it.set(target, values.toTypedArray())
-                } else if (it.type.kotlin.isSubclassOf(Set::class)) {
-                    it.set(target, values.toSet())
-                } else if (it.type.kotlin.isSubclassOf(List::class)) {
-                    it.set(target, values)
-                } else {
-                    it.set(target, values[0])
-                }
-
-                /*
-                if (it.type is Collection) {
-                    val value = Collection::newInstance
-                    it.set(target, value)
-                    for (t in types) {
-                        value += ValueProcessor(names, args, paramNames, t).parseValue()
-                    }
-                }
-                 */
-            }
+            field.write(target, parseFieldValue(knownNames, token, option.names.toList(), field))
+        }
     }
 
-    @Suppress("UNCHECKED_CAST")
-    private fun parseParameters(
-        paramNames: List<String>
-    ) {
-        target::class.java.declaredFields.filter { it.annotations.any { a -> a is Parameters } }
-            .forEach {
-                val parameters = it.annotations.find { a -> a is Parameters } as Parameters
-                val names = parameters.names
-                if (Modifier.isFinal(it.modifiers))
-                    throw IllegalStateException("todo")
+    private fun parsePositionalParameters(knownNames: List<String>) {
+        target::class.java.fieldsAnnotatedWith(Parameters::class.java).forEach { field ->
+            val params = field.getAnnotation(Parameters::class.java)
+            val token = args.find { it in params.names } ?: args.first()
+            field.write(target, parseFieldValue(knownNames, token, params.names.toList(), field))
+        }
+    }
 
-                val value = parseValue(paramNames, args.find { a -> a in names } ?: args[0], names.toList(), it)
-                it.set(target, value)
+    private fun parseArgumentGroups(knownNames: List<String>) {
+        target::class.java.fieldsAnnotatedWith(ArgumentGroup::class.java).forEach { field ->
+            val group = field.getAnnotation(ArgumentGroup::class.java)
+            val types = group.types.toList()
+            val groupKnownNames = buildGroupKnownNames(knownNames, types)
+            val values = if (args.firstOrNull() in groupKnownNames) {
+                parseExplicitGroupValues(types, groupKnownNames)
+            } else {
+                parseImplicitGroupValues(types, groupKnownNames)
             }
+            field.write(target, valuesToFieldValue(field, values))
+        }
+    }
+
+    private fun buildGroupKnownNames(base: List<String>, types: List<KClass<*>>): List<String> =
+        (base +
+            types.flatMap { it.collectArgNames() } +
+            types.flatMap { it.classLevelNames() } +
+            types.flatMap { it.enumSynonyms() }
+        ).distinct()
+
+    private fun parseExplicitGroupValues(types: List<KClass<*>>, knownNames: List<String>): MutableList<Any> =
+        types.mapNotNull { type ->
+            val names = type.classLevelNames()
+            if (args.isEmpty()) null
+            else parseValue(knownNames, args.find { it in names } ?: args.first(), names, type.java)
+        }.toMutableList()
+
+    private fun parseImplicitGroupValues(types: List<KClass<*>>, knownNames: List<String>): MutableList<Any> {
+        val values = mutableListOf<Any>()
+        val defaultType = types.firstOrNull { it.hasNoClassLevelFlags() } ?: return values
+
+        val remaining = types - defaultType
+        parseDefaultGroupMember(defaultType, knownNames)?.let { values += it }
+
+        remaining.mapNotNullTo(values) { type -> parseTypedGroupMember(type, knownNames) }
+        return values
+    }
+
+    private fun parseDefaultGroupMember(type: KClass<*>, knownNames: List<String>): Any? {
+        if (type.annotations.any { it is Command }) {
+            val instance = type.java.getConstructor().newInstance()
+            val memberNames = type.collectArgNames().toSet()
+            val end = args.indexOfFirst { it in (knownNames.toSet() - memberNames) }.let { if (it == -1) args.size else it }
+            val consumed = args.subList(0, end).toList()
+            CLI(instance, *consumed.toTypedArray()).parseArgs()
+            args.removeAll(consumed.toSet())
+            return instance
+        }
+        val names = type.collectArgNames()
+        return parseValue(knownNames, args.find { it in names } ?: args.first(), names, type.java)
+    }
+
+    private fun parseTypedGroupMember(type: KClass<*>, knownNames: List<String>): Any? {
+        val names = type.classLevelNames()
+        if (args.isEmpty() || (args.none { it in names } && !type.java.isEnum)) return null
+
+        return if (type.annotations.any { it is Command }) {
+            val instance = type.java.getConstructor().newInstance()
+            val start = args.indexOfLast { it in names }.coerceAtLeast(0)
+            val end = args.indexOfLast { it in names }.let { if (it <= 0) args.size else it }
+            CLI(instance, *args.subList(start, end).toTypedArray()).parseArgs()
+        } else {
+            parseValue(knownNames, args.find { it in names } ?: args.first(), names, type.java)
+        }
+    }
+
+    private fun valuesToFieldValue(field: Field, values: List<Any>): Any? = when {
+        field.type.isArray -> values.toTypedArray()
+        field.type.kotlin.isSubclassOf(Set::class) -> values.toSet()
+        field.type.kotlin.isSubclassOf(List::class) -> values
+        else -> values.firstOrNull()
     }
 
     @OptIn(ExperimentalStdlibApi::class)
-    @Suppress("UNCHECKED_CAST")
-    private fun parseValue(paramNames: List<String>, argString: String, names: List<String>, field: Field): Any? {
-        var argIndex = args.indexOf(argString)
-        val type = field.type
+    private fun parseFieldValue(
+        knownNames: List<String>,
+        token: String,
+        names: List<String>,
+        field: Field,
+    ): Any? {
+        val startIndex = args.indexOf(token)
+        parseValue(knownNames, token, names, field.type)?.let { return it }
 
-        val value = parseValue(paramNames, argString, names, type)
-        if (value != null)
-            return value
+        if (!field.type.kotlin.isSubclassOf(MutableCollection::class)) return null
 
-        if (type.kotlin.isSubclassOf(MutableCollection::class)) {
-            val component = (field.genericType as ParameterizedType).actualTypeArguments[0] as Class<*>
-            val indexOfFirst = args.toList().subList(argIndex, args.size).indexOfFirst { s -> s in (paramNames - argString) }
-            val endIndex: Int = if (component == Boolean::class.javaObjectType) {
-                val indexOfFirst1 =
-                    args.toList().subList(argIndex, args.size).indexOfFirst { s -> s in (paramNames - names.toSet()) }
-                if (indexOfFirst1 == -1) args.size else indexOfFirst1
-            } else {
-                if (names.isNotEmpty())
-                    argIndex++
-                if (indexOfFirst == -1) args.size else indexOfFirst
+        val elementType = (field.genericType as ParameterizedType).actualTypeArguments[0] as Class<*>
+        val endIndex = collectionEndIndex(startIndex, names, knownNames, token, elementType)
+        val sliceStart = if (names.isNotEmpty() && token in names) startIndex + 1 else startIndex
+        val elements = args.subList(sliceStart, endIndex).map { parseValue(knownNames, it, names, elementType) }
+        if (elements.isEmpty()) return null
+
+        return newMutableCollection(field.type, elements)
+    }
+
+    private fun collectionEndIndex(
+        startIndex: Int,
+        names: List<String>,
+        knownNames: List<String>,
+        token: String,
+        elementType: Class<*>,
+    ): Int {
+        val relativeStop = args.subList(startIndex, args.size)
+            .indexOfFirst { it in (knownNames - token) }
+        return when {
+            elementType == Boolean::class.javaObjectType -> {
+                val flagStop = args.subList(startIndex, args.size)
+                    .indexOfFirst { it in (knownNames - names.toSet()) }
+                if (flagStop == -1) args.size else startIndex + flagStop
             }
-
-            val newValue = when {
-                type.kotlin.isSubclassOf(Set::class) -> {
-                    HashSet()
-                }
-
-                type.kotlin.isSubclassOf(List::class) -> {
-                    ArrayList()
-                }
-
-                else -> type.getConstructor().newInstance() as MutableCollection<Any?>
-            }
-
-            val subList = listOf(*args.subList(argIndex, endIndex).toTypedArray())
-            subList.forEach { s ->
-                newValue.add(parseValue(paramNames, s, names, component))
-            }
-
-            return newValue.ifEmpty { null }
+            relativeStop == -1 -> args.size
+            else -> startIndex + relativeStop
         }
-
-        return null
     }
 
     @Suppress("UNCHECKED_CAST")
+    private fun newMutableCollection(type: Class<*>, elements: List<Any?>): MutableCollection<Any?> = when {
+        type.kotlin.isSubclassOf(Set::class) -> HashSet(elements.filterNotNull())
+        type.kotlin.isSubclassOf(List::class) -> ArrayList(elements.filterNotNull())
+        else -> (type.getConstructor().newInstance() as MutableCollection<Any?>).also { it.addAll(elements.filterNotNull()) }
+    }
+
+    @OptIn(ExperimentalStdlibApi::class)
     private fun parseValue(
-        paramNames: List<String>,
-        argString: String,
+        knownNames: List<String>,
+        token: String,
         names: List<String>,
-        type: Class<*>
+        type: Class<*>,
     ): Any? {
-        val argIndex = args.indexOf(argString)
+        val index = args.indexOf(token)
 
         return when {
-            type.isArray -> {
-                val indexOfFirst = args.toList().subList(argIndex, args.size).indexOfFirst { s -> s in (paramNames - argString) }
-                val endIndex = if (indexOfFirst == -1) args.size else indexOfFirst
-                val component = type.componentType
-                val subList = listOf(*args.subList(argIndex+1, endIndex).toTypedArray())
-                val array = subList.map { s ->
-                    parseValue(paramNames, s, names, component)
-                }.toTypedArray()
-
-                array.ifEmpty { null }
-            }
-
-            type.isEnum -> {
-                val (newArgString, newArgIndex) = if (argString !in names)
-                    argString to argIndex
-                else
-                    args[argIndex+1] to argIndex+1
-
-                val value = (type.enumConstants as Array<Enum<*>>).find { e -> (e.name == newArgString || "-${e.name}" == newArgString) }
-                if (value != null)
-                    args.removeAt(newArgIndex)
-
-                value
-            }
-
-            type == Boolean::class.javaPrimitiveType || type == java.lang.Boolean::class.java -> {
-                if (argString in names) {
-                    args.removeAt(argIndex)
-                    return true
-                }
-                return false
-            }
-
-            // if type is object
-            type.kotlin.objectInstance != null -> {
-                if (argString in names) {
-                    args.removeAt(argIndex)
-                    type.kotlin.objectInstance
-                }
-                else null
-            }
-
-            else -> {
-                val newArgIndex = if (argString in names)
-                    argIndex+1
-                else argIndex
-
-                val value = registeredTypeConverters[type]?.convert(args[newArgIndex])
-                if (value != null) {
-                    args.removeAt(newArgIndex)
-                }
-
-                value
-            }
+            type.isArray -> parseArrayValue(knownNames, token, names, type, index)
+            type.isEnum -> parseEnumValue(token, names, type, index)
+            type == Boolean::class.javaPrimitiveType || type == java.lang.Boolean::class.java ->
+                parseBooleanFlag(token, names, index)
+            type.kotlin.objectInstance != null -> parseObjectSingleton(token, names, type, index)
+            else -> parseConvertedValue(token, names, type, index)
         }
     }
-}
 
-interface TypeConverter<T : Any> {
-    fun convert(string: String): T
-}
+    private fun parseArrayValue(
+        knownNames: List<String>,
+        token: String,
+        names: List<String>,
+        type: Class<*>,
+        index: Int,
+    ): Any? {
+        val relativeEnd = args.subList(index, args.size).indexOfFirst { it in (knownNames - token) }
+        val end = if (relativeEnd == -1) args.size else index + relativeEnd
+        val elements = args.subList(index + 1, end).map { parseValue(knownNames, it, names, type.componentType) }
+        return elements.takeIf { it.isNotEmpty() }?.toTypedArray()
+    }
 
-object StringConverter : TypeConverter<String> {
-    override fun convert(string: String): String = string
-}
+    @Suppress("UNCHECKED_CAST")
+    private fun parseEnumValue(token: String, names: List<String>, type: Class<*>, index: Int): Any? {
+        val (valueToken, removeIndex) = if (token !in names) {
+            token to index
+        } else {
+            args.getOrNull(index + 1) to index + 1
+        }
+        if (valueToken == null) return null
 
-object IntConverter : TypeConverter<Int> {
-    override fun convert(string: String): Int = string.toInt()
-}
+        val match = (type.enumConstants as Array<Enum<*>>)
+            .find { it.name.equals(valueToken, true) || "-${it.name}".equals(valueToken, true) }
+            ?: return null
 
-object CharConverter : TypeConverter<Char> {
-    override fun convert(string: String): Char = string[0]
-}
+        args.removeAt(removeIndex)
+        return match
+    }
 
-object LongConverter : TypeConverter<Long> {
-    override fun convert(string: String): Long = string.toLong()
-}
+    private fun parseBooleanFlag(token: String, names: List<String>, index: Int): Boolean {
+        if (token in names) {
+            args.removeAt(index)
+            return true
+        }
+        return false
+    }
 
-object FloatConverter : TypeConverter<Float> {
-    override fun convert(string: String): Float = string.toFloat()
-}
+    @OptIn(ExperimentalStdlibApi::class)
+    private fun parseObjectSingleton(token: String, names: List<String>, type: Class<*>, index: Int): Any? {
+        if (token !in names) return null
+        args.removeAt(index)
+        return type.kotlin.objectInstance
+    }
 
-object DoubleConverter : TypeConverter<Double> {
-    override fun convert(string: String): Double = string.toDouble()
-}
-
-object ShortConverter : TypeConverter<Short> {
-    override fun convert(string: String): Short = string.toShort()
-}
-
-object ByteConverter : TypeConverter<Byte> {
-    override fun convert(string: String): Byte = string.toByte()
-}
-
-object BooleanConverter : TypeConverter<Boolean> {
-    override fun convert(string: String): Boolean = string.toBoolean()
-}
-
-object PathConverter : TypeConverter<Path> {
-    override fun convert(string: String): Path = Path.of(string)
+    private fun parseConvertedValue(token: String, names: List<String>, type: Class<*>, index: Int): Any? {
+        val valueIndex = if (token in names) index + 1 else index
+        val raw = args.getOrNull(valueIndex) ?: return null
+        val converted = typeConverters[type]?.convert(raw) ?: return null
+        args.removeAt(valueIndex)
+        if (token in names)
+            args.remove(token)
+        return converted
+    }
 }
