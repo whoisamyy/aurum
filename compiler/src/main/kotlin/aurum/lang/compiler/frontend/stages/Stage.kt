@@ -38,5 +38,5 @@ open class Property<T : Artifact>(
     fun set(v: T) { this.value = v }
     fun set(v: () -> T) { this.getter = v }
 
-    override fun get(): T = value ?: getter?.invoke() ?: error("Artifact is not ready yet")
+    override fun get(): T = value ?: getter?.invoke() ?: error("Artifact of type $type is not ready yet")
 }
