@@ -27,14 +27,6 @@ object Pipeline {
         }
     }
 
-//    @JvmStatic
-//    fun registerStage(stageProvider: () -> Stage) {
-//        stageProvider().also {
-//            stages.add(it)
-//            stagesByClass[it::class] = it
-//        }
-//    }
-
     private fun sortStages(unsorted: List<Stage>): List<Stage> {
         val sorted = mutableListOf<Stage>()
 
