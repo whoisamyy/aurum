@@ -1,7 +1,6 @@
 package aurum.lang.model.impl;
 
 import aurum.lang.model.*;
-import aurum.lang.model.util.ParametrizedTypePool;
 import org.jetbrains.annotations.NotNull;
 
 import java.lang.reflect.AccessFlag;
@@ -71,12 +70,12 @@ public final class TypeImpl implements Type {
 
     @Override
     public @NotNull Type withDefaultTypeArguments() {
-        return ParametrizedTypePool.getBaseType(this)
-                                   .withTypeArguments(
-                                           Arrays.stream(typeParameters())
-                                                 .map(TypeParameter::bound)
-                                                 .toArray(Type[]::new)
-                                   );
+        return this.getRawType()
+                   .withTypeArguments(
+                           Arrays.stream(typeParameters())
+                                 .map(TypeParameter::bound)
+                                 .toArray(Type[]::new)
+                   );
     }
 
     @Override
