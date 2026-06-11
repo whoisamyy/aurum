@@ -1,5 +1,3 @@
-@file:Suppress("JavaDefaultMethodsNotOverriddenByDelegation")
-
 package aurum.lang.compiler.frontend.stages.analyzing
 
 import aurum.lang.compiler.frontend.stages.AurumFile
@@ -7,6 +5,8 @@ import aurum.lang.compiler.frontend.stages.Files
 import aurum.lang.compiler.frontend.stages.Stage
 import aurum.lang.compiler.frontend.stages.parsing.ASTNode
 import aurum.lang.compiler.frontend.stages.parsing.ParsingStage
+import aurum.lang.model.Member
+import aurum.lang.model.Type
 
 class ImportProcessingStage : Stage() {
     val files = input<Files>()
@@ -29,13 +29,19 @@ class ImportProcessingStage : Stage() {
                 imports += it
             }
 
-        file.imports = imports.associate {
+        file.imports = ImportMap()
+        file.imports.putAll(imports.associate {
             (it.alias ?: it.import.identifiers.last()) to it.import
-        } as ImportMap
+        })
 
         return file
     }
 }
 
 
-typealias ImportMap = MutableMap<String, ASTNode.QualifiedName>
+class ImportMap : HashMap<String, ASTNode.QualifiedName>(), MutableMap<String, ASTNode.QualifiedName> {
+    lateinit var types: MutableMap<String, Type>
+
+    // maps strings to list because multiple methods can have same (full)name
+    lateinit var members: MutableMap<String, List<Member>>
+}
