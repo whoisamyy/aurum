@@ -119,18 +119,30 @@ class ConstantPool {
     }
 
     @Suppress("UNCHECKED_CAST")
-    fun <T : Field> dereference(ref: FieldGroupRef): List<T> {
-        return ref.refs.map { dereference<Field>(it as ConstantPoolRef) as T }
+    fun dereference(ref: FieldGroupRef): List<Field> {
+        return ref.refs.map { dereference(it) }
     }
 
     @Suppress("UNCHECKED_CAST")
-    fun <T : Method> dereference(ref: MethodGroupRef): List<T> {
-        return ref.refs.map { dereference<Method>(it as ConstantPoolRef) as T }
+    fun dereference(ref: MethodGroupRef): List<Method> {
+        return ref.refs.map { dereference(it) }
     }
 
     @Suppress("UNCHECKED_CAST")
     fun <T : Any> dereference(ref: ConstantPoolRef): T {
         return constantPool[ref] as T
+    }
+
+    fun dereference(ref: SingleMethodRef): Method {
+        return dereference<Method>(ref)
+    }
+
+    fun dereference(ref: FieldRef): Field {
+        return dereference<Field>(ref)
+    }
+
+    fun dereference(ref: TypeRef): Type {
+        return dereference<Type>(ref)
     }
 
     /**
