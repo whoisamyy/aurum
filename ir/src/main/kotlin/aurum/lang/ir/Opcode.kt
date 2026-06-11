@@ -24,6 +24,7 @@ enum class Opcode {
     CmpGe,
     Jump,
     JumpIf,
+    JumpIfN,
     Return,
     Throw,
     TryBegin,
@@ -40,8 +41,6 @@ enum class Opcode {
     PutField,
     GetMember,
     GetMethod,
-    @Deprecated("""Use Closure instead""")
-    GetMethodStatic,
     GetStatic,
     ArrayLoad,
     ArrayStore,
@@ -50,6 +49,4 @@ enum class Opcode {
     TypeOf,
     Label,
     Switch,
-    @Deprecated("No SSA so remove it")
-    Phi
 }
