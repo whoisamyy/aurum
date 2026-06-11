@@ -3,13 +3,13 @@ package aurum.lang.model;
 import aurum.lang.model.factory.TypeFactory;
 import aurum.lang.model.impl.ArrayTypeImpl;
 import aurum.lang.model.impl.Utils;
-import aurum.lang.model.util.ParametrizedTypePool;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.lang.classfile.TypeKind;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 public interface Type extends Accessible, Attributable, Generic {
@@ -31,6 +31,9 @@ public interface Type extends Accessible, Attributable, Generic {
     @NotNull Field[] fields();
     @NotNull Method[] methods();
 
+    default boolean isPlainType() {
+        return true;
+    }
     default boolean isPrimitive() {
         return false;
     }
@@ -38,6 +41,32 @@ public interface Type extends Accessible, Attributable, Generic {
         return false;
     }
 
+    /// Calculates the inheritance distance between this type and the given type.
+    /// <p>
+    /// The distance represents the number of inheritance steps between two related types:
+    /// <p>
+    /// - `0` — both types are equal <p>
+    /// - `1` — direct superclass or directly implemented/extended interface <p>
+    /// - `n > 1` — indirect inheritance relationship <p>
+    /// - `-1` — types are unrelated <p>
+    /// <p>
+    /// Examples:
+    /// <p>
+    /// ```java
+    /// Integer -> Number = 1
+    /// Integer -> Object = 2
+    /// ArrayList -> List = 1
+    /// ArrayList -> Collection = 2
+    /// String -> Runnable = -1
+    /// ```
+    /// <p>
+    /// Interface inheritance is resolved recursively through implemented or extended interfaces.
+    ///
+    /// @param other target type to calculate distance to
+    /// @return inheritance distance between this type and {@code other},
+    /// or {@code -1} if no inheritance relationship exists
+    /// @throws NullPointerException if {@code other} is {@code null}
+    ///
     default int getInheritanceDistance(Type other) {
         if (other == null)
             throw new NullPointerException("Cannot calculate inheritance distance from " + this.toUsageString() + " to null");
@@ -69,6 +98,14 @@ public interface Type extends Accessible, Attributable, Generic {
     default boolean isSubclassOf(Type other) {
         if (this.fullName().equals(other.fullName()))
             return true;
+
+        if (this instanceof PrimitiveType primitiveType) {
+            if (primitiveType.boxed().fullName().equals(other.fullName()))
+                return true;
+        } else if (other instanceof PrimitiveType primitiveType) {
+            if (primitiveType.boxed().fullName().equals(this.fullName()))
+                return true;
+        }
 
         switch (other) {
             case TemplateType _ -> {
@@ -113,12 +150,17 @@ public interface Type extends Accessible, Attributable, Generic {
 
 
     /// @param dimensions dimensions or depth of the resulting ArrayType
-    /// @return returns Type and not ArrayType because if dimensions == 0 then the type itself is returned
+    /// @return returns Type with array depth of dimensions
     default @NotNull Type asArray(int dimensions) {
         if (dimensions == 0)
             return this;
 
         return new ArrayTypeImpl<>(this, dimensions);
+    }
+
+    /// @return returns ArrayType with array depth of 1.
+    default @NotNull Type asArray() {
+        return this.asArray(1);
     }
 
 
@@ -149,9 +191,9 @@ public interface Type extends Accessible, Attributable, Generic {
     /// @param typeArguments type arguments
     /// @return Type with type arguments applied to it.
     @Override
-    @NotNull Type withTypeArguments(TypeArgument @NotNull [] typeArguments);
+    @NotNull Type withTypeArguments(TypeArgument @NotNull ... typeArguments);
     @Override
-    @NotNull Type withTypeArguments(Type @NotNull [] typeArguments);
+    @NotNull Type withTypeArguments(Type @NotNull ... typeArguments);
     @Override
     @NotNull Type withDefaultTypeArguments();
 
@@ -161,7 +203,7 @@ public interface Type extends Accessible, Attributable, Generic {
 
     default @NotNull Type getRawType() {
         return typeArguments().length > 0
-                ? ParametrizedTypePool.getBaseType(this)
+                ? Objects.requireNonNull(TypeFactory.TypePool.get(this.fullName()))
                 : this;
     }
 
@@ -174,7 +216,7 @@ public interface Type extends Accessible, Attributable, Generic {
     /// @param returnType Return type of the method
     /// @param parameterTypes types of parameters of the method
     /// @return Returns [Method] with provided signature or none if no method found
-    default @NotNull Optional<Method> findMethodExact(String name, Type returnType, Type[] parameterTypes) {
+    default @NotNull Optional<@NotNull Method> findMethodExact(@NotNull String name, @NotNull Type returnType, @NotNull Type @NotNull [] parameterTypes) {
         return Arrays.stream(methods())
                 .filter(m -> name.equals(m.name()))
                 .filter(m -> returnType.equals(m.returnType()))
@@ -192,12 +234,13 @@ public interface Type extends Accessible, Attributable, Generic {
                 })
                 .findFirst();
     }
+
     /// Searches for method with signature that exactly matches provided signature in [methods][#methods()] of this class
     /// @param name Name of the method
     /// @param returnType Return type of the method
     /// @param parameters parameters of the method
     /// @return Returns [Method] with provided signature or none if no method found
-    default @NotNull Optional<Method> findMethodExact(String name, Type returnType, Parameter[] parameters) {
+    default @NotNull Optional<@NotNull Method> findMethodExact(@NotNull String name, @NotNull Type returnType, @NotNull Parameter @NotNull [] parameters) {
         return findMethodExact(name, returnType, Arrays.stream(parameters).map(Parameter::type).toArray(Type[]::new));
     }
 
@@ -205,7 +248,7 @@ public interface Type extends Accessible, Attributable, Generic {
     /// @param name Name of the method
     /// @param parameters parameters of the method. If none are provided then parameters will be empty.
     /// @return Returns [Method] with provided signature or none if no method found
-    default @NotNull Optional<Method> findMethodExact(String name, Parameter[] parameters) {
+    default @NotNull Optional<@NotNull Method> findMethodExact(@NotNull String name, @NotNull Parameter @NotNull [] parameters) {
         return findMethodExact(name, Arrays.stream(parameters).map(Parameter::type).toArray(Type[]::new));
     }
 
@@ -213,7 +256,7 @@ public interface Type extends Accessible, Attributable, Generic {
     /// @param name Name of the method
     /// @param parameterTypes types of parameters of the method. If none are provided then parameter types will be empty.
     /// @return Returns [Method] with provided signature or none if no method found
-    default @NotNull Optional<Method> findMethodExact(String name, Type[] parameterTypes) {
+    default @NotNull Optional<@NotNull Method> findMethodExact(@NotNull String name, @NotNull Type @NotNull [] parameterTypes) {
         return Arrays.stream(methods())
                      .filter(m -> name.equals(m.name()))
                      .filter(m -> {
@@ -235,14 +278,14 @@ public interface Type extends Accessible, Attributable, Generic {
     /// @param name Name of the method
     /// @param returnType Return type of the method
     /// @return Returns [Method] with provided signature or none if no method found
-    default @NotNull Optional<Method> findMethodExact(String name, Type returnType) {
+    default @NotNull Optional<@NotNull Method> findMethodExact(@NotNull String name, @NotNull Type returnType) {
         return findMethodExact(name, returnType, Utils.EMPTY_TYPES);
     }
 
     /// @param name Name of methods
     /// @param returnType Return type of methods
     /// @return Returns array of methods with given name and return type
-    default @NotNull Method[] getMethodsExact(String name, Type returnType) {
+    default @NotNull Method[] getMethodsExact(@NotNull String name, @NotNull Type returnType) {
         return Arrays.stream(methods())
                      .filter(m -> returnType.equals(m.returnType()))
                      .filter(m -> name.equals(m.name()))
@@ -256,7 +299,7 @@ public interface Type extends Accessible, Attributable, Generic {
     /// @param returnType Return type of the method
     /// @param parameterTypes types of parameters of the method
     /// @return Returns [Method] or none if no method found
-    default @NotNull Optional<Method> findMethod(String name, Type returnType, Type[] parameterTypes) {
+    default @NotNull Optional<@NotNull Method> findMethod(@NotNull String name, @NotNull Type returnType, @NotNull Type @NotNull [] parameterTypes) {
         return Arrays.stream(methods())
                 .filter(m -> name.equals(m.name()))
                 .filter(m -> !m.isSynthetic())
@@ -284,7 +327,7 @@ public interface Type extends Accessible, Attributable, Generic {
     /// @param returnType Return type of the method
     /// @param parameters parameters of the method
     /// @return Returns [Method] or none if no method found
-    default @NotNull Optional<Method> findMethod(String name, Type returnType, Parameter[] parameters) {
+    default @NotNull Optional<@NotNull Method> findMethod(@NotNull String name, @NotNull Type returnType, @NotNull Parameter @NotNull [] parameters) {
         return findMethod(name, returnType, Arrays.stream(parameters).map(Parameter::type).toArray(Type[]::new));
     }
 
@@ -294,7 +337,7 @@ public interface Type extends Accessible, Attributable, Generic {
     /// @param name Name of the method
     /// @param parameterTypes types of parameters of the method
     /// @return Returns [Method] or none if no method found
-    default @NotNull Optional<Method> findMethod(String name, Type[] parameterTypes) {
+    default @NotNull Optional<@NotNull Method> findMethod(@NotNull String name, @NotNull Type @NotNull [] parameterTypes) {
         return Arrays.stream(methods())
                      .filter(m -> name.equals(m.name()))
                      .filter(m -> !m.isSynthetic())
@@ -320,7 +363,7 @@ public interface Type extends Accessible, Attributable, Generic {
     /// @param name Name of the method
     /// @param parameters parameters of the method
     /// @return Returns [Method] or none if no method found
-    default @NotNull Optional<Method> findMethod(String name, Parameter[] parameters) {
+    default @NotNull Optional<@NotNull Method> findMethod(@NotNull String name, @NotNull Parameter @NotNull [] parameters) {
         return findMethod(name, Arrays.stream(parameters).map(Parameter::type).toArray(Type[]::new));
     }
 
@@ -330,7 +373,7 @@ public interface Type extends Accessible, Attributable, Generic {
     /// @param name Name of the method
     /// @param returnType Return type of the method
     /// @return Returns [Method] or none if no method found
-    default @NotNull Optional<Method> findMethod(String name, Type returnType) {
+    default @NotNull Optional<@NotNull Method> findMethod(@NotNull String name, @NotNull Type returnType) {
         return findMethod(name, returnType, Utils.EMPTY_TYPES);
     }
 
@@ -339,7 +382,7 @@ public interface Type extends Accessible, Attributable, Generic {
     /// If exact signature is required then it is recommended to use [findMethodExact][#findMethodExact(String, Type)] method
     /// @param name Name of the method
     /// @return Returns [Method] or none if no method found
-    default @NotNull Optional<Method> findMethod(String name) {
+    default @NotNull Optional<@NotNull Method> findMethod(@NotNull String name) {
         return Arrays.stream(methods())
                      .filter(m -> name.equals(m.name()))
                      .filter(m -> !m.isSynthetic())
@@ -351,7 +394,7 @@ public interface Type extends Accessible, Attributable, Generic {
     /// @param returnType Return type of methods. Allows subclasses. If exact return type is required
     /// then use [getMethodsExact][#getMethodsExact(String, Type)] method
     /// @return Returns array of methods with given name and return type
-    default @NotNull Method[] getMethods(String name, Type returnType) {
+    default @NotNull Method[] getMethods(@NotNull String name, @NotNull Type returnType) {
         return Arrays.stream(methods())
                      .filter(m -> returnType.isSubclassOf(m.returnType()))
                      .filter(m -> name.equals(m.name()))
@@ -361,13 +404,13 @@ public interface Type extends Accessible, Attributable, Generic {
     ///
     /// @param name Name of methods
     /// @return Returns array of methods with given name
-    default @NotNull Method[] getMethods(String name) {
+    default @NotNull Method[] getMethods(@NotNull String name) {
         return Arrays.stream(methods())
                      .filter(m -> name.equals(m.name()))
                      .toArray(Method[]::new);
     }
 
-    default @NotNull Optional<Field> findField(String name) {
+    default @NotNull Optional<Field> findField(@NotNull String name) {
         return Arrays.stream(fields())
                 .filter(f -> name.equals(f.name()))
                 .findFirst();
@@ -409,6 +452,25 @@ public interface Type extends Accessible, Attributable, Generic {
                 yield retString;
             }
         };
+    }
+
+    default Type lowestCommonAncestorWith(Type other) {
+        for (Type candidate = this; candidate != null; candidate = candidate.superClass()) {
+            boolean ok = true;
+            // Check that this candidate is a supertype of every other type in the union
+            boolean found = false;
+            for (Type anc = other; anc != null; anc = anc.superClass()) {
+                if (anc.equals(candidate)) {
+                    found = true;
+                }
+            }
+            if (!found) { // candidate is not common to all
+                ok = false;
+                continue;
+            }
+            return candidate;
+        }
+        return Types.OBJECT;
     }
 
     static @NotNull Type ofClass(Class<?> clazz) {

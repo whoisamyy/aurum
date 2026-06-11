@@ -14,6 +14,11 @@ public interface IntersectionType extends Type {
     Type[] types();
 
     @Override
+    default boolean isPlainType() {
+        return false;
+    }
+
+    @Override
     @NotNull IntersectionType withTypeArguments(TypeArgument @NotNull [] typeArguments);
 
     @Override
@@ -75,7 +80,7 @@ public interface IntersectionType extends Type {
         //noinspection RedundantLengthCheck
         if (types == null || types.length == 0) return Types.OBJECT;
 
-        // GLB: find a type among the components that is a subtype ofMethod all others
+        // GLB: find a type among the components that is a subtype of all others
         for (Type candidate : types) {
             boolean ok = true;
             for (Type other : types) {

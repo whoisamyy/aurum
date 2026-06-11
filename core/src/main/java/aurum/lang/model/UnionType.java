@@ -13,6 +13,11 @@ import java.util.HashSet;
 public interface UnionType extends Type {
     Type[] types();
 
+    @Override
+    default boolean isPlainType() {
+        return false;
+    }
+
     @NotNull
     @Override
     default AccessFlag[] accessFlags() {
@@ -61,10 +66,10 @@ public interface UnionType extends Type {
         Type[] types = types();
         if (types == null || types.length == 0) return Types.OBJECT;
 
-        // Try each ancestor ofMethod the first type (including itself) as a candidate
+        // Try each ancestor of the first type (including itself) as a candidate
         for (Type candidate = types[0]; candidate != null; candidate = candidate.superClass()) {
             boolean ok = true;
-            // Check that this candidate is a supertype ofMethod every other type in the union
+            // Check that this candidate is a supertype of every other type in the union
             for (int i = 1; i < types.length; i++) {
                 Type t = types[i];
                 boolean found = false;
@@ -176,7 +181,7 @@ public interface UnionType extends Type {
         );
     }
 
-    static @NotNull UnionType ofTypeModels(@NotNull Type[] types) {
+    static @NotNull UnionType ofTypeModels(@NotNull Type @NotNull [] types) {
         return new UnionTypeImpl(
                 types
         );
