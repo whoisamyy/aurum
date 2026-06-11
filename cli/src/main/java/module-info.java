@@ -1,11 +1,9 @@
 module aurum.cli {
-    opens lang.aurum.cli;
+    exports aurum.lang.cli.args;
 
-    requires aurum.parsing;
-    requires aurum.core;
-    requires aurum.ir;
-    requires aurum.codegen;
+    opens aurum.lang.cli;
+
+    requires aurum.compiler;
     requires kotlin.stdlib;
-    requires org.antlr.antlr4.runtime;
     requires org.jetbrains.annotations;
 }

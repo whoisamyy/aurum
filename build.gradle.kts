@@ -18,7 +18,7 @@ dependencies {
 }
 
 application {
-    mainClass = "lang.aurum.cli.Main"
+    mainClass = "aurum.lang.cli.Main"
 }
 
 tasks.test {

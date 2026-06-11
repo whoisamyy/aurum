@@ -1,16 +1,14 @@
 module aurum.core {
-    exports lang.aurum;
-    exports lang.aurum.util;
-    exports lang.aurum.model;
-    exports lang.aurum.model.util;
-    exports lang.aurum.model.impl to aurum.parsing;
-    exports lang.aurum.model.factory to aurum.parsing;
+    exports aurum.lang.util;
+    exports aurum.lang.model;
+    exports aurum.lang.model.util;
+    exports aurum.lang.model.attribute;
+    exports aurum.lang.model.impl to aurum.compiler;
+    exports aurum.lang.model.factory to aurum.compiler;
 
-    opens lang.aurum;
-    opens lang.aurum.util;
-    opens lang.aurum.model;
+    opens aurum.lang.util;
+    opens aurum.lang.model;
 
-    requires org.jetbrains.annotations;
     requires kotlin.stdlib;
-    requires kotlin.reflect;
+    requires org.jetbrains.annotations;
 }
