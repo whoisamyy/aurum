@@ -1,21 +1,21 @@
 package aurum.lang.model.impl;
 
 import aurum.lang.model.TemplateType;
-import aurum.lang.model.Type;
-import org.jetbrains.annotations.NotNull;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public record TemplateTypeImpl(
-        String className,
-        int arrayDimensions
+        String className
 ) implements TemplateType {
-    @NotNull
-    @Override
-    public Type asArray(int dimensions) {
-        return new TemplateTypeImpl(className, arrayDimensions + dimensions);
-    }
+    private static final Map<String, TemplateTypeImpl> pool = new ConcurrentHashMap<>();
 
     @Override
     public String toUsageString() {
-        return className + "[]".repeat(arrayDimensions);
+        return className;
+    }
+
+    public static TemplateTypeImpl of(String name) {
+        return pool.computeIfAbsent(name, TemplateTypeImpl::new);
     }
 }
