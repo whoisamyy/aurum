@@ -9,6 +9,8 @@ class TypeProcessingStage : Stage() {
     val definedTypes = input<DefinedTypes>()
     val definedPackages = input<DefinedPackages>()
 
+    val typeResolverFactory = input<TypeResolverFactory<*>>()
+
     val processedTypes = output<ProcessedTypes>()
 
     val types by lazy { definedTypes.get() }
@@ -25,9 +27,10 @@ class TypeProcessingStage : Stage() {
 
     fun processFile(file: AurumFile, definitions: List<TypeDefinition>): List<ProcessedType> {
         val availableTypes = definitions.map(TypeDefinition::type) +
-                file.importedTypes()
+                file.importedTypes() +
+                (definedPackages.get().find { it.name() == file.pkg }?.publicTypes() ?: arrayOf())
 
-        val processor = TypeProcessor(availableTypes.toSet())
+        val processor = TypeProcessor(typeResolverFactory.get(), availableTypes.toSet())
         return definitions
             .mapNotNull {
                 if (it.type !is MutableType) {

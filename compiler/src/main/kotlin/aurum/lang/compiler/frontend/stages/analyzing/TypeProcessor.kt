@@ -1,7 +1,9 @@
 package aurum.lang.compiler.frontend.stages.analyzing
 
 import aurum.lang.compiler.frontend.model.MutableType
+import aurum.lang.compiler.frontend.stages.TypeResolverFactory
 import aurum.lang.compiler.frontend.stages.parsing.ASTNode
+import aurum.lang.compiler.frontend.stages.typeresolving.AbstractTypeResolver
 import aurum.lang.model.TemplateType
 import aurum.lang.model.Type
 import aurum.lang.model.TypeParameter
@@ -13,9 +15,10 @@ import aurum.lang.model.attribute.ExtensionAttribute
  * type parameters, superclass / super-interfaces, and extension targets.
  */
 class TypeProcessor(
-    private val availableTypes: Set<Type>,
+    private val typeResolverFactory: TypeResolverFactory<*>,
+    private val availableTypes: Set<Type>
 ) {
-    private val rootGetter = TypeGetter(availableTypes)
+    private val rootGetter = typeResolverFactory(availableTypes)
 
     fun processType(type: MutableType, declaration: ASTNode.TypeDeclaration): Type =
         when (declaration) {
@@ -27,16 +30,16 @@ class TypeProcessor(
 
     fun processClass(type: MutableType, declaration: ASTNode.ClassDeclaration): Type {
         type.typeParameters = buildTypeParameters(declaration.typeParameters)
-        val getter = getterWithTypeParameters(declaration.typeParameters)
-        applyClassExtensions(type, declaration.extensions, getter)
+        val typeResolver = typeResolverWithTypeParameters(declaration.typeParameters)
+        applyClassExtensions(type, declaration.extensions, typeResolver)
         return type
     }
 
     fun processInterface(type: MutableType, declaration: ASTNode.InterfaceDeclaration): Type {
         type.typeParameters = buildTypeParameters(declaration.typeParameters)
-        val getter = getterWithTypeParameters(declaration.typeParameters)
+        val typeResolver = typeResolverWithTypeParameters(declaration.typeParameters)
         type.interfaces.clear()
-        declaration.extensions?.mapTo(type.interfaces) { getter.getType(it) }
+        declaration.extensions?.mapTo(type.interfaces) { typeResolver.getType(it) }
         return type
     }
 
@@ -51,7 +54,7 @@ class TypeProcessor(
         return type
     }
 
-    fun processDecorator(type: MutableType, @Suppress("UNUSED_PARAMETER") declaration: ASTNode.DecoratorDeclaration): Type {
+    fun processDecorator(type: MutableType, declaration: ASTNode.DecoratorDeclaration): Type {
         // Annotation-like declarations: no generic parameters in the current AST; members processed later.
         return type
     }
@@ -59,30 +62,30 @@ class TypeProcessor(
     private fun buildTypeParameters(params: List<ASTNode.TypeParam>?): MutableList<TypeParameter> {
         if (params.isNullOrEmpty()) return mutableListOf()
         val templateTypes = params.map { TemplateType.of(it.name) }.toSet()
-        val getter = TypeGetter(availableTypes + templateTypes)
+        val typeResolver = typeResolverFactory(availableTypes + templateTypes)
         return params
             .map { p ->
-                val bound = p.bound?.let { getter.getType(it) } ?: Types.OBJECT
+                val bound = p.bound?.let { typeResolver.getType(it) } ?: Types.OBJECT
                 TypeParameter.of(p.name, bound)
             }
             .toMutableList()
     }
 
-    private fun getterWithTypeParameters(params: List<ASTNode.TypeParam>?): TypeGetter {
+    private fun typeResolverWithTypeParameters(params: List<ASTNode.TypeParam>?): AbstractTypeResolver {
         val extra = params.orEmpty().map { TemplateType.of(it.name) }.toSet()
-        return TypeGetter(availableTypes + extra)
+        return typeResolverFactory(availableTypes + extra)
     }
 
     private fun applyClassExtensions(
         type: MutableType,
         extensions: List<ASTNode.TypeExpr>?,
-        getter: TypeGetter,
+        typeResolver: AbstractTypeResolver,
     ) {
         if (extensions.isNullOrEmpty()) {
             type.superClass = Types.OBJECT
             return
         }
-        val resolved = extensions.map { getter.getType(it) }
+        val resolved = extensions.map { typeResolver.getType(it) }
         val superIndex = resolved.indexOfFirst { !it.isInterface }
         if (superIndex < 0) {
             type.superClass = Types.OBJECT
