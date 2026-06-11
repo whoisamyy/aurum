@@ -2,10 +2,14 @@
 
 package aurum.lang.compiler.frontend.stages
 
+import aurum.lang.compiler.backend.Translator
 import aurum.lang.compiler.frontend.stages.analyzing.ImportMap
+import aurum.lang.compiler.frontend.stages.linking.AbstractLinker
 import aurum.lang.compiler.frontend.stages.parsing.AST
 import aurum.lang.compiler.frontend.stages.parsing.ASTNode
 import aurum.lang.compiler.frontend.stages.parsing.Token
+import aurum.lang.compiler.frontend.stages.typeresolving.AbstractTypeResolver
+import aurum.lang.ir.ConstantPool
 import aurum.lang.model.Package
 import aurum.lang.model.Type
 import java.nio.file.Path
@@ -21,10 +25,16 @@ data class Source (
     val isDirectory = path.isDirectory()
 }
 
+data class TargetArtifact(
+    val target: String,
+    val extension: String
+) : Artifact
+
 data class AurumFile (
     val path: Path,
     val contents: String,
 ) : Artifact {
+    val constantPool: ConstantPool = ConstantPool()
     lateinit var pkg: String
     lateinit var tokens: List<Token>
     lateinit var ast: AST
@@ -76,5 +86,29 @@ data class TokenList (
 data class CompilationData (
     val workDir: Path,
     val outputDir: Path,
-    val optimisationLevel: Int
+    val optimizationLevel: Int
 ) : Artifact
+
+class LinkerFactory<T : AbstractLinker> (
+    constructor: () -> T
+) : Artifact, () -> T by constructor
+
+class TypeResolverFactory<T : AbstractTypeResolver>(
+    constructor1: (Set<Type>) -> T,
+    constructor2: (AbstractTypeResolver, Set<Type>) -> T = { parent, types -> constructor1((parent.availableTypes.values + types).toSet()) }
+) : Artifact,
+        (Set<Type>) -> T by constructor1,
+        (AbstractTypeResolver, Set<Type>) -> T by constructor2
+
+class TranslatorFactory<T : Translator<*>> (
+    constructor: (ProcessedType) -> T
+) : Artifact, (ProcessedType) -> T by constructor
+
+data class TranslationResult<T>(
+    val type: ProcessedType,
+    val result: T
+) : Artifact
+
+data class TranslationResults (
+    val results: List<TranslationResult<*>>
+) : Artifact, List<TranslationResult<*>> by results
