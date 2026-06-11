@@ -23,7 +23,7 @@ public class TypeTest {
         var stringType = Types.STRING;
         var iteratorType = Type.ofClass(Iterator.class);
 
-        var argedType = iteratorType.withTypeArguments(new Type[]{stringType});
+        var argedType = iteratorType.withTypeArguments(stringType);
         var optionalMethod = argedType.findMethod("next");
         assertTrue(optionalMethod.isPresent());
         assertEquals(Types.STRING, optionalMethod.get().returnType());

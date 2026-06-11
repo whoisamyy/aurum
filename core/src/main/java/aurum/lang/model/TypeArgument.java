@@ -8,6 +8,6 @@ public interface TypeArgument {
     Type bound();
 
     static TypeArgument of(@NotNull String name, @NotNull Type bound) {
-        return new TypeArgumentImpl(name, bound);
+        return TypeArgumentImpl.of(name, bound);
     }
 }

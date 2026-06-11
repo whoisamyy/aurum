@@ -198,6 +198,6 @@ public interface TemplateType extends Type {
     }
 
     static TemplateType of(String name) {
-        return new TemplateTypeImpl(name, 0);
+        return TemplateTypeImpl.of(name);
     }
 }

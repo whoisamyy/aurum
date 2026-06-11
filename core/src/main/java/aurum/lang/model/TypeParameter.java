@@ -11,10 +11,10 @@ public interface TypeParameter {
     }
 
     static TypeParameter of(String name, Type bound) {
-        return new TypeParameterImpl(name, bound);
+        return TypeParameterImpl.of(name, bound);
     }
 
     static TypeParameter of(String name) {
-        return new TypeParameterImpl(name, Types.OBJECT);
+        return TypeParameterImpl.of(name, Types.OBJECT);
     }
 }

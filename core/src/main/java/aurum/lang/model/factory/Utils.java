@@ -32,7 +32,7 @@ public final class Utils {
                 bound = TypeFactory.ofTypes(typeVariable.getBounds());
                 typeCache.put(key, bound);
             }
-            TypeParameterImpl apply = new TypeParameterImpl(typeVariable.getName(), bound);
+            TypeParameterImpl apply = TypeParameterImpl.of(typeVariable.getName(), bound);
             type.typeParameters()[i] = apply;
         }
     }
