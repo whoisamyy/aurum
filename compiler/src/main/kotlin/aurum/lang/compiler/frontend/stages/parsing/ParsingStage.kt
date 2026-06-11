@@ -14,7 +14,7 @@ class ParsingStage : Stage() {
     override fun execute() {
         asts.set(Files(
             files.get().map {
-                it.ast = Parser(it.tokens.filter { token -> token !is Token.EndLine && token !is Token.Comment })
+                it.ast = Parser(it.tokens.filter { token -> token !is Token.Comment })
                     .parse()
                 it
             }
