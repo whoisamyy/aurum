@@ -7,10 +7,11 @@ class Tokenizer (
 ) {
     fun parse(): TokenList {
         val tokens = mutableListOf<Token>()
-        input.split("\n").forEachIndexed { i, s ->
-            tokens += parseLine(s, i+1)
+        val lines = input.split("\n", "\r\n")
+        lines.forEachIndexed { i, line ->
+            tokens += parseLine(line, i + 1)
+            tokens += Token.EndLine(i + 1, line.length + 1)
         }
-
         return TokenList(tokens.toList())
     }
 
@@ -32,8 +33,13 @@ class Tokenizer (
             val mappedRange = range.map { it + char }
             val token = tokenType(lineIndex, mappedRange.first())
 
-            if (token.value.isEmpty())
-                token.value = tokenType.regex.find(processed)?.value!!
+            if (token.value.isEmpty()) {
+                val value = tokenType.regex.find(processed)?.value!!
+                if (token is Token.String) {
+                    token.value = value.drop(1).dropLast(1)
+                } else
+                    token.value = value
+            }
 
             tokens += token
 
