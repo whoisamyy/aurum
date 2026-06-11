@@ -1,16 +1,20 @@
 package aurum.lang.compiler.frontend.model
 
+import aurum.lang.attribute.ConstantPoolAttribute
 import aurum.lang.compiler.frontend.attribute.contains
+import aurum.lang.compiler.frontend.stages.analyzing.GeneratedClassAttribute
+import aurum.lang.ir.ConstantPool
 import aurum.lang.model.*
 import aurum.lang.model.attribute.ExtensionAttribute
 import aurum.lang.model.factory.TypeFactory.TypePool
 import aurum.lang.model.impl.*
 import java.lang.reflect.AccessFlag
+import java.util.concurrent.ConcurrentHashMap
 
 object MutableTypePool {
     val pool: MutableMap<Pair<String, List<TypeArgument>?>, MutableType> = mutableMapOf() // fullname to type
 
-    fun contains(className: String, pkg: String, typeArgument: List<TypeArgument>? = null): Boolean {
+    fun contains(className: String, pkg: String, typeArgument: List<TypeArgument>? = listOf()): Boolean {
         return pool.containsKey("$pkg.$className" to typeArgument)
     }
 
@@ -157,6 +161,8 @@ data class ExtensionType(
     override fun typeParameters(): Array<out TypeParameter> = extendedType.typeParameters()
     override fun typeArguments(): Array<out TypeArgument> = extendedType.typeArguments()
     override fun isPrimitive(): Boolean = extendedType.isPrimitive
+    override fun isPlainType(): Boolean = extendedType.isPlainType
+    override fun isArray(): Boolean = extendedType.isArray
 
     override fun toString(): String {
         return toUsageString()
@@ -178,6 +184,50 @@ data class MutableArrayType<T : Type> (
     componentType.typeParameters().toMutableList(),
     componentType.typeArguments().toMutableList()
 ), ArrayType<T> {
+    companion object {
+        private val arrayTypeFields: MutableMap<MutableArrayType<*>, Array<Field>> = ConcurrentHashMap()
+        private val arrayTypeMethods: MutableMap<MutableArrayType<*>, Array<Method>> = ConcurrentHashMap()
+    }
+
+    override fun fields(): Array<out Field> {
+        return arrayTypeFields.computeIfAbsent(
+            this
+        ) { t ->
+            arrayOf(
+                FieldImpl(
+                    t,
+                    "length",
+                    Types.INT,
+                    Utils.EMPTY_ATTRIBUTES,
+                    Utils.DEFAULT_ACCESS_FLAGS
+                )
+            )
+        }
+    }
+
+    override fun methods(): Array<Method> {
+        return arrayTypeMethods.computeIfAbsent(
+            this
+        ) { t ->
+            val methods = mutableListOf(*Types.OBJECT.methods())
+            methods.removeIf { m -> m.name() == "<init>" }
+            methods.add(
+                MethodImpl(
+                    t,
+                    "<init>",
+                    t,
+                    Utils.DEFAULT_ARRAY_INIT_PARAMETERS,
+                    Utils.EMPTY_TYPES,
+                    Utils.DEFAULT_ACCESS_FLAGS,
+                    Utils.EMPTY_TYPE_PARAMETERS,
+                    Utils.EMPTY_TYPE_ARGUMENTS,
+                    Utils.EMPTY_ATTRIBUTES
+                )
+            )
+            methods.toTypedArray()
+        }
+    }
+
     override fun componentType(): T = componentType
 
     override fun arrayDimensions(): Int = arrayDimensions
@@ -189,16 +239,12 @@ data class MutableArrayType<T : Type> (
 
     override fun superClass(): Type? = super<MutableType>.superClass()
 
-    override fun fields(): Array<out Field> = super<ArrayType>.fields()
-
-    override fun methods(): Array<out Method> = super<ArrayType>.methods()
-
     override fun toString(): String {
         return toUsageString()
     }
 }
 
-data class MutableMethod (
+open class MutableMethod (
     var owner: Type,
     var name: String,
     var returnType: Type = Types.VOID,
@@ -261,7 +307,7 @@ data class MutableMethod (
     }
 }
 
-data class MutableField (
+open class MutableField (
     val owner: Type,
     var name: String,
     var type: Type = Types.OBJECT,
@@ -273,6 +319,16 @@ data class MutableField (
     override fun type(): Type = type
     override fun attributes(): Array<out Attribute> = attributes.toTypedArray()
     override fun accessFlags(): Array<out AccessFlag> = accessFlags.toTypedArray()
+
+    override fun toString(): String {
+        return buildString {
+            if (accessFlags.isNotEmpty())
+                append(accessFlags.joinToString(" ", postfix = " ") { it.name.lowercase() })
+
+            append(type.toUsageString())
+            append(" ").append(name)
+        }
+    }
 }
 
 data class MutableUnionType (
@@ -478,7 +534,7 @@ fun MutableType.toImmutable(): Type {
         return PrimitiveTypeImpl.entries.find { it.name.equals(this.className, ignoreCase = true) }!!
     }
 
-    return TypePool.add(TypeImpl(
+    return TypePool.getOrCompute(
         this.className,
         this.pkg,
         this.superClass,
@@ -489,7 +545,7 @@ fun MutableType.toImmutable(): Type {
         this.attributes.toTypedArray(),
         this.typeParameters.toTypedArray(),
         this.typeArguments.toTypedArray(),
-    ))
+    )
 }
 
 fun MutableUnionType.toImmutable(): UnionType {
@@ -514,29 +570,40 @@ fun Method.getType(): Type {
 fun fnType(returnType: Type, parameterTypes: List<Type>): Type {
     val objectType = Types.OBJECT
     val typeParameters: MutableList<TypeParameter> = if (returnType != Types.VOID) mutableListOf(
-        TypeParameterImpl("R", objectType)
+        TypeParameterImpl.of("R", objectType)
     ) else mutableListOf()
     val typeArguments: MutableList<TypeArgument> = if (returnType != Types.VOID) mutableListOf(
-        TypeArgumentImpl("R", returnType)
+        TypeArgumentImpl.of("R", returnType)
     ) else mutableListOf()
 
     parameterTypes.forEachIndexed { i, it ->
-        typeParameters += TypeParameterImpl("T$i", objectType)
-        typeArguments += TypeArgumentImpl("T$i", it)
+        typeParameters += TypeParameterImpl.of("T$i", objectType)
+        typeArguments += TypeArgumentImpl.of("T$i", it)
     }
 
-    val fnType = MutableTypePool.get(
-        "Fn${if (returnType == Types.VOID) "V" else ""}${parameterTypes.size.takeIf { it > 0 } ?: ""}",
-        "aurum.lang",
-        accessFlags = mutableListOf(AccessFlag.INTERFACE, AccessFlag.ABSTRACT, AccessFlag.PUBLIC),
+    val className = "Fn${if (returnType == Types.VOID) "V" else ""}${parameterTypes.size.takeIf { it > 0 } ?: ""}"
+    val pkg = "aurum.lang"
+    val getter = {
+        MutableTypePool.get(
+            className,
+            pkg,
+            accessFlags = mutableListOf(AccessFlag.INTERFACE, AccessFlag.ABSTRACT, AccessFlag.PUBLIC),
 //        interfaces = mutableListOf(
 //            if (returnType != Types.VOID)
 //                Type.ofClass(Fn::class.java)
 //            else
 //                Type.ofClass(FnV::class.java)
 //        ),
-        typeParameters = typeParameters
-    )
+            typeParameters = typeParameters,
+            attributes = mutableListOf(GeneratedClassAttribute, ConstantPoolAttribute(ConstantPool()))
+        )
+    }
+
+    if (MutableTypePool.contains(className, pkg)) {
+        return getter()
+    }
+
+    val fnType = getter()
 
     val invokeMethod = createInvokeMethod(fnType, parameterTypes.size)
     if (!fnType.methods.contains(invokeMethod))
@@ -550,7 +617,7 @@ private fun createInvokeMethod(owner: Type, parametersCount: Int): MutableMethod
     for (i in 0..<parametersCount) {
         parameters += ParameterImpl(
             "arg$i",
-            TemplateTypeImpl("T$i", 0),
+            TemplateTypeImpl.of("T$i"),
             Utils.EMPTY_ATTRIBUTES
         )
     }
@@ -561,7 +628,7 @@ private fun createInvokeMethod(owner: Type, parametersCount: Int): MutableMethod
         returnType = if (owner.className().startsWith("FnV"))
             Types.VOID
         else
-            TemplateTypeImpl("R", 0),
+            TemplateTypeImpl.of("R"),
         parameters = parameters,
         accessFlags = mutableListOf(AccessFlag.PUBLIC, AccessFlag.ABSTRACT)
     )
