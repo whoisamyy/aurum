@@ -1,5 +1,7 @@
 package aurum.lang.compiler.frontend.stages.analyzing
 
+import aurum.lang.compiler.frontend.attribute.contains
+import aurum.lang.compiler.frontend.attribute.get
 import aurum.lang.compiler.frontend.model.MutableField
 import aurum.lang.compiler.frontend.model.MutableMethod
 import aurum.lang.compiler.frontend.model.MutableType
@@ -10,6 +12,7 @@ import aurum.lang.model.Parameter
 import aurum.lang.model.Type
 import aurum.lang.model.TypeParameter
 import aurum.lang.model.Types
+import aurum.lang.model.attribute.ExtensionAttribute
 import aurum.lang.model.attribute.PrimaryConstructorAttribute
 import aurum.lang.model.impl.Utils
 import java.lang.reflect.AccessFlag
@@ -212,6 +215,7 @@ class MemberProcessingStage : Stage() {
         }
     }
 
+    @Suppress("DuplicatedCode")
     private fun processFunction(
         typeResolver: AbstractTypeResolver,
         decl: ASTNode.FunctionDeclaration,
@@ -236,6 +240,11 @@ class MemberProcessingStage : Stage() {
         )
 
         method.parameters += processParameters(decl.parameters, methodTypeResolver)
+
+        if (type.attributes.contains<ExtensionAttribute>()) {
+            method.parameters.addFirst(Parameter.of("this", type.attributes.get<ExtensionAttribute>()!!.type))
+            method.accessFlags += AccessFlag.STATIC
+        }
 
         decl.returnType
             ?.let { typeResolver.getType(it) }
@@ -344,6 +353,11 @@ class MemberProcessingStage : Stage() {
             )
         }
 
+        if (type.attributes.contains<ExtensionAttribute>()) {
+            method.parameters.addFirst(Parameter.of("this", type.attributes.get<ExtensionAttribute>()!!.type))
+            method.accessFlags += AccessFlag.STATIC
+        }
+
         decl.returnType
             ?.let { typeGetter.getType(it) }
             ?.also { method.returnType = it }
@@ -365,6 +379,9 @@ class MemberProcessingStage : Stage() {
         unprocessedType: MutableType,
         modifiers: List<ASTNode.Modifier>
     ): MutableField {
+        if (unprocessedType.attributes.contains<ExtensionAttribute>())
+            error("Extension fields are not supported yet")
+
         val fieldType = typeGetter.getType(variableType)
 
         val field = MutableField(

@@ -20,7 +20,12 @@ class IRCompiler(
     internal val typeResolver: AbstractTypeResolver,
     internal val cp: ConstantPool,
 ) {
-    private val thisType = method.owner()
+    private val thisType =
+        if (method.owner().attributes().contains<ExtensionAttribute>())
+            method.owner().attributes().get<ExtensionAttribute>()!!.type
+        else
+            method.owner()
+
     private val instructions = mutableListOf<Instruction>()
     internal val irBuilder = IRBuilder(instructions)
     internal val instructionList get() = instructions
@@ -235,19 +240,30 @@ class IRCompiler(
             ?.takeIf { left.type.isPrimitive && right.type.isPrimitive }
             ?.let { return BinaryOperatorResolution(it) }
 
-        var method: Method? = null
-        var custom: CustomOperator? = null
+        var method: Method? = (typeResolver.filter { it.attributes().get<ExtensionAttribute>()?.type == left.type }
+            .flatMap { it.methods().toList() } + left.type.methods())
+            .filter { it.name() == opSymbol }
+            .minByOrNull {
+                val (s, avg) = if (it.isStatic)
+                    it.getFitDegree(arrayOf(left.type, right.type))
+                else
+                    it.getFitDegree(arrayOf(right.type))
 
-        left.type.findMethodExact(opSymbol, arrayOf(right.type))
-            .filter { !it.isStatic }
-            .ifPresent { m ->
-                m.attributes().get<CustomOperator>()
-                    ?.takeIf { it.isBinary }
-                    ?.let { op ->
-                        method = m
-                        custom = op
-                    }
+                s + avg
             }
+
+        var custom: CustomOperator? = method?.attributes()?.get<CustomOperator>()
+//
+//        left.type.findMethodExact(opSymbol, arrayOf(right.type))
+//            .filter { !it.isStatic }
+//            .ifPresent { m ->
+//                m.attributes().get<CustomOperator>()
+//                    ?.takeIf { it.isBinary }
+//                    ?.let { op ->
+//                        method = m
+//                        custom = op
+//                    }
+//            }
 
         if (custom == null) {
             left.type.findMethodExact(opSymbol, arrayOf(left.type, right.type))
@@ -260,6 +276,14 @@ class IRCompiler(
                             custom = op
                         }
                 }
+        }
+
+        if (method?.owner()?.attributes()?.contains<ExtensionAttribute>() == true) {
+            left.producer = GetMethod(
+                Reference.Empty,
+                left.ref(),
+                cp.getReference(method)
+            )
         }
 
         return BinaryOperatorResolution(
@@ -436,7 +460,7 @@ class IRCompiler(
         )
 
         return if (method.isStatic)
-            compileMethodInvocation(method, variable, listOf(left, right), left)
+            compileMethodInvocation(method, variable, listOf(right), left)
         else
             compileMethodInvocation(method, variable, listOf(right), left)
 
@@ -726,7 +750,7 @@ class IRCompiler(
 
             Reference.This -> {
                 if (this.method.name() == "<init>") {
-                    this.method.owner().getMethods("<init>").toMutableList()
+                    this.thisType.getMethods("<init>").toMutableList()
                         .also { it.remove(this.method) }
                         .find { it.getFitDegree(argTypes.toTypedArray()).first != Int.MAX_VALUE }
                         ?: error("No suitable constructor found")
@@ -740,7 +764,7 @@ class IRCompiler(
 
             Reference.Super -> {
                 if (this.method.name() == "<init>") {
-                    this.method.owner().superClass()?.getMethods("<init>")?.toMutableList()
+                    this.thisType.superClass()?.getMethods("<init>")?.toMutableList()
                         ?.also { it.remove(this.method) }
                         ?.find { it.getFitDegree(argTypes.toTypedArray()).first != Int.MAX_VALUE }
                         ?: error("No suitable constructor found")
@@ -1003,10 +1027,10 @@ class IRCompiler(
         args: List<Value>,
         callable: Value
     ): Value {
-        val (sum, _) = method.getFitDegree(args.map { it.type }.toTypedArray())
-        if (sum == Int.MAX_VALUE) {
-            error("Wrong argument types")
-        }
+//        val (sum, _) = method.getFitDegree(args.map { it.type }.toTypedArray())
+//        if (sum == Int.MAX_VALUE) {
+//            error("Wrong argument types")
+//        }
 
         val argTypes = args.map(Value::type)
         val typeParams = method.typeParameters()
@@ -1036,7 +1060,19 @@ class IRCompiler(
 
         val value = cp.getReference(method.asGenericallyUntypedMember())
         variable.type = method.returnType()
-        return if (method.isStatic) {
+        return if (method.isStatic && method.owner().attributes().contains<ExtensionAttribute>()) {
+            val receiver = when (val producer = callable.producer) {
+                is GetMethod -> producer.obj
+                else -> error("Extension call requires bound receiver")
+            }
+            val call = Call(
+                variable.reference,
+                value,
+                listOf(receiver) + args.refs()  // implicit `this` is first param
+            )
+            ir.emit(call, variable)
+            variable
+        } else if (method.isStatic) {
             val call = Call(
                 variable.reference,
                 value,
@@ -1094,7 +1130,10 @@ class IRCompiler(
 
     private fun compileMemberAccess(expr: ASTNode.MemberAccess): Value {
         val owner = compileExpression(expr.expression) // this should be eliminated with DCE if members are static
-        val suitingMembers = owner.type.members().filter { it.name() == expr.member }
+        val suitingMembers = owner.type.members().filter { it.name() == expr.member } +
+                typeResolver.filter { it.attributes().get<ExtensionAttribute>()?.type == owner.type }
+                            .flatMap { it.members().toList() }
+                            .filter { it.name() == expr.member }
 
         if (suitingMembers.size == 1) {
             return when (val member = suitingMembers[0]) {
@@ -1120,10 +1159,18 @@ class IRCompiler(
                 }
 
                 is Method -> {
-                    if (member.isStatic) {
+                    val isExtension = member.owner().attributes().contains<ExtensionAttribute>()
+                    if (member.isStatic && !isExtension) {
                         Value(
                             cp.getReference(member),
                             member.getType()
+                        )
+                    } else if (member.isStatic) {
+                        val ref = cp.getReference(member)
+                        Value(
+                            ref,
+                            member.getType(),
+                            GetMethod(Reference.Empty, owner.ref(), ref)
                         )
                     } else {
                         val variable = createVariable(
@@ -1241,8 +1288,8 @@ class IRCompiler(
 
     private fun compileIdentifierExpression(expr: ASTNode.IdentifierExpression): Value {
         return when {
-            expr.identifier == "this" -> Value(Reference.This, method.owner())
-            expr.identifier == "super" -> Value(Reference.Super, method.owner().superClass()!!)
+            expr.identifier == "this" -> Value(Reference.This, thisType)
+            expr.identifier == "super" -> Value(Reference.Super, thisType.superClass()!!)
             expr.identifier in currentScope -> currentScope[expr.identifier]!!
             typeResolver.getTypeOrNull(expr.identifier) != null -> {
                 val value = typeResolver.getType(expr.identifier)
@@ -1362,10 +1409,7 @@ class IRCompiler(
             is ASTNode.DoWhile -> compileDoWhile(stmt)
             is ASTNode.Expression -> compileExpression(stmt)
             is ASTNode.VariableDeclaration -> compileVariableDeclaration(stmt)
-            is ASTNode.Assignment -> {
-                compileAssignment(stmt)
-                return
-            }
+            is ASTNode.Assignment -> compileAssignment(stmt)
             is ASTNode.For -> compileForStatement(stmt)
 //            else -> TODO("`$stmt` not implemented currently")
         }
