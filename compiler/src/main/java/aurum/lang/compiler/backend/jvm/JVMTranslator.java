@@ -279,7 +279,7 @@ public final class JVMTranslator extends Translator<byte[]> {
             if (!(call.getMethod() instanceof SingleMethodRef ref)) {
                 throw new UnsupportedOperationException("Method group references not yet supported");
             }
-            Method actual = cp.dereference(ref);
+            Method actual = cp.dereference(ref).asGenericallyUntypedMember();
             emitArguments(call.getArgs(), actual);
             cb.invokestatic(
                     JVMUtils.classDescOf(actual.owner()),
@@ -294,7 +294,7 @@ public final class JVMTranslator extends Translator<byte[]> {
             if (!(callMethod.getMethod() instanceof SingleMethodRef ref)) {
                 throw new UnsupportedOperationException("Method group references not yet supported");
             }
-            Method actual = cp.dereference(ref);
+            Method actual = cp.dereference(ref).asGenericallyUntypedMember();
             resolveRValue(callMethod.getObj());
             emitArguments(callMethod.getArgs(), actual);
             cb.invokespecial(
@@ -309,7 +309,7 @@ public final class JVMTranslator extends Translator<byte[]> {
             if (!(callVirtual.getMethod() instanceof SingleMethodRef ref)) {
                 throw new UnsupportedOperationException("Method group references not yet supported");
             }
-            Method actual = cp.dereference(ref);
+            Method actual = cp.dereference(ref).asGenericallyUntypedMember();
             resolveRValue(callVirtual.getObj());
             emitArguments(callVirtual.getArgs(), actual);
             if (actual.owner().isInterface()) {
@@ -334,7 +334,7 @@ public final class JVMTranslator extends Translator<byte[]> {
             Method constructor = objType.findMethod("<init>", argTypes.toArray(Type[]::new))
                                         .orElseThrow(() -> new IllegalStateException(
                                                 "Constructor not found on " + objType.toUsageString()
-                                        ));
+                                        )).asGenericallyUntypedMember();
 //            emitArguments(init.getArgs(), constructor);
             cb.invokespecial(
                     JVMUtils.classDescOf(objType),
