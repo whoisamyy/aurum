@@ -1,5 +1,6 @@
 package aurum.lang.compiler.frontend.stages.analyzing
 
+import aurum.lang.compiler.frontend.attribute.get
 import aurum.lang.compiler.frontend.model.MutableType
 import aurum.lang.compiler.frontend.stages.TypeResolverFactory
 import aurum.lang.compiler.frontend.stages.parsing.ASTNode
@@ -45,12 +46,9 @@ class TypeProcessor(
 
     fun processExtension(type: MutableType, declaration: ASTNode.ExtensionDeclaration): Type {
         val extended = rootGetter.getType(declaration.type)
-        val attr =
-            object : ExtensionAttribute() {
-                override fun values(): Map<String, Any?> = mutableMapOf()
-            }
+        val attr = type.attributes.get<ExtensionAttribute>()!!
         attr.type = extended
-        type.attributes += attr
+
         return type
     }
 

@@ -23,7 +23,8 @@ object FileClassAttribute : Attribute {
     override fun isVisible(): Boolean = true
 }
 
-abstract class ExtensionAttribute : Attribute {
+class ExtensionAttribute : Attribute {
     lateinit var type: Type
     override fun name(): String = "Extension"
+    override fun values(): Map<String, Any?> = mapOf()
 }

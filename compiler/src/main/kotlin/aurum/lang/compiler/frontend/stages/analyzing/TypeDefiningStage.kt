@@ -6,6 +6,7 @@ import aurum.lang.compiler.frontend.model.MutableType
 import aurum.lang.compiler.frontend.model.MutableTypePool
 import aurum.lang.compiler.frontend.stages.*
 import aurum.lang.compiler.frontend.stages.parsing.ASTNode
+import aurum.lang.model.attribute.ExtensionAttribute
 import aurum.lang.model.attribute.PrimaryConstructorAttribute
 import java.lang.reflect.AccessFlag
 
@@ -141,7 +142,8 @@ class TypeDefiningStage : Stage() {
                 val type = MutableTypePool.get(
                     "extension$${it.type}",
                     file.pkg,
-                    accessFlags = it.modifiers.toAccessFlags().toMutableList()
+                    accessFlags = it.modifiers.toAccessFlags().toMutableList(),
+                    attributes = mutableListOf(ExtensionAttribute())
                 )
                 types[type] = it
 
