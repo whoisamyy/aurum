@@ -577,7 +577,11 @@ class IRCompiler(
                 else -> {}
             }
         } else if (operator is CustomOperator && method != null) {
-            return compileMethodInvocation(method, variable, listOf(exprValue), exprValue)
+            return if (method.isStatic)
+                compileMethodInvocation(method, variable, listOf(exprValue), exprValue)
+            else
+                compileMethodInvocation(method, variable, listOf(), exprValue)
+
 //            if (method.isStatic) {
 //                val call = Call(
 //                    variable.reference,
