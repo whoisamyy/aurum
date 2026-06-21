@@ -6,7 +6,10 @@ import aurum.lang.model.Type
 import aurum.lang.model.Types
 
 @Suppress("JavaDefaultMethodsNotOverriddenByDelegation")
-abstract class AbstractTypeResolver(availableTypes: Set<Type>) : Set<Type> by availableTypes {
+abstract class AbstractTypeResolver(
+    availableTypes: Set<Type>,
+    val aliases: Map<String, Type> = emptyMap()
+) : Set<Type> by availableTypes {
     companion object {
         val defaultTypes = mapOf(
             "string" to Types.STRING,
@@ -15,9 +18,16 @@ abstract class AbstractTypeResolver(availableTypes: Set<Type>) : Set<Type> by av
     }
 
     constructor(parentLinker: AbstractTypeResolver, types: Set<Type>)
-            : this((types + parentLinker.availableTypes.values).toSet())
+            : this((types + parentLinker.availableTypes.values).toSet(), parentLinker.aliases)
 
-    val availableTypes: Map<String, Type> = availableTypes.associateBy(Type::className) + defaultTypes
+    constructor(parentLinker: AbstractTypeResolver, types: Set<Type>, aliases: Map<String, Type>)
+            : this((types + parentLinker.availableTypes.values).toSet(), parentLinker.aliases + aliases)
+
+    val availableTypes: Map<String, Type> =
+        availableTypes.associateBy(Type::className)
+                      .filterKeys { it !in aliases } +
+                            aliases +
+                            defaultTypes
 
     abstract fun getTypeOrNull(typeExpr: ASTNode.TypeExpr?): Type?
     abstract fun getTypeOrNull(fullName: String?): Type?

@@ -7,6 +7,6 @@ class TypeResolverInjectionStage : Stage() {
     val resolver = output<TypeResolverFactory<*>>()
 
     override fun execute() {
-        resolver.set(TypeResolverFactory(::SimpleTypeResolver))
+        resolver.set(TypeResolverFactory(::SimpleTypeResolver, ::SimpleTypeResolver))
     }
 }

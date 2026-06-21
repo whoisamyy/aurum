@@ -8,6 +8,8 @@ import aurum.lang.compiler.frontend.model.MutableType
 import aurum.lang.compiler.frontend.stages.*
 import aurum.lang.compiler.frontend.stages.parsing.ASTNode
 import aurum.lang.compiler.frontend.stages.typeresolving.AbstractTypeResolver
+import aurum.lang.compiler.frontend.stages.typeresolving.SimpleTypeResolver
+import aurum.lang.compiler.frontend.stages.typeresolving.resolveTypeAliases
 import aurum.lang.model.Parameter
 import aurum.lang.model.Type
 import aurum.lang.model.TypeParameter
@@ -247,7 +249,7 @@ class MemberProcessingStage : Stage() {
         }
 
         decl.returnType
-            ?.let { typeResolver.getType(it) }
+            ?.let { methodTypeResolver.getType(it) }
             ?.also { method.returnType = it }
 
         decl.codeBlock
@@ -359,7 +361,7 @@ class MemberProcessingStage : Stage() {
         }
 
         decl.returnType
-            ?.let { typeGetter.getType(it) }
+            ?.let { methodAbstractTypeResolver.getType(it) }
             ?.also { method.returnType = it }
 
         decl.codeBlock
@@ -398,11 +400,22 @@ class MemberProcessingStage : Stage() {
         return field
     }
 
-    private fun getTypeResolver(type: ProcessedType) = typeResolverFactory.get()(
-        availableTypes[type.file]!! +
+    private fun getTypeResolver(type: ProcessedType): AbstractTypeResolver {
+        val baseTypes = availableTypes[type.file]!! +
             type.type.typeParameters().map(TypeParameter::toTemplate).toSet() +
             type.file.imports.types.values
-    )
+
+        val importAliases = type.file.imports.types.toMap()
+        val typeAliases = resolveTypeAliases(type.file, baseTypes, importAliases)
+        val aliases = importAliases + typeAliases
+
+        val baseResolver = typeResolverFactory.get()(baseTypes)
+        return if (aliases.isNotEmpty()) {
+            SimpleTypeResolver(baseResolver, emptySet(), aliases)
+        } else {
+            baseResolver
+        }
+    }
 
     private fun AurumFile.importedTypes(): List<Type> = processedTypes.get().map(ProcessedType::type)
         .filter { it.fullName() in this.imports.values.map(ASTNode.QualifiedName::toString) }

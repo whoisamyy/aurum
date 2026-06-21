@@ -6,11 +6,17 @@ import aurum.lang.model.*
 import java.util.function.IntFunction
 
 open class SimpleTypeResolver(
-    availableTypes: Set<Type>
-) : AbstractTypeResolver(availableTypes) {
+    availableTypes: Set<Type>,
+    aliases: Map<String, Type> = emptyMap()
+) : AbstractTypeResolver(availableTypes, aliases) {
     constructor(pkg: Package) : this(pkg.types().toSet())
+
     constructor(parentLinker: AbstractTypeResolver, types: Set<Type>)
-            : this((types + parentLinker.availableTypes.values).toSet())
+            : this((types + parentLinker.availableTypes.values).toSet(), parentLinker.aliases)
+
+    constructor(parentLinker: AbstractTypeResolver, types: Set<Type>, aliases: Map<String, Type>)
+            : this((types + parentLinker.availableTypes.values).toSet(), parentLinker.aliases + aliases)
+
 
     override fun getTypeOrNull(typeExpr: ASTNode.TypeExpr?): Type? {
         return when (typeExpr) {
@@ -60,7 +66,7 @@ open class SimpleTypeResolver(
     }
 
     override fun getTypeOrNull(fullName: String?): Type? {
-        return availableTypes[fullName] ?: getPrimitiveTypeOrNull(fullName)
+        return availableTypes[fullName] ?: aliases[fullName] ?: getPrimitiveTypeOrNull(fullName)
     }
 
     @Suppress("UNCHECKED_CAST", "OVERRIDE_DEPRECATION")
