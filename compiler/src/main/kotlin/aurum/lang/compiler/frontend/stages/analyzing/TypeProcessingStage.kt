@@ -2,6 +2,7 @@ package aurum.lang.compiler.frontend.stages.analyzing
 
 import aurum.lang.compiler.frontend.model.MutableType
 import aurum.lang.compiler.frontend.stages.*
+import aurum.lang.compiler.frontend.stages.linking.LinkingStage
 import aurum.lang.compiler.frontend.stages.parsing.ASTNode
 import aurum.lang.model.Type
 
@@ -14,6 +15,10 @@ class TypeProcessingStage : Stage() {
     val processedTypes = output<ProcessedTypes>()
 
     val types by lazy { definedTypes.get() }
+
+    init {
+        dependsOn<LinkingStage>()
+    }
 
     override fun execute() {
         definedPackages.get()
@@ -28,7 +33,8 @@ class TypeProcessingStage : Stage() {
     fun processFile(file: AurumFile, definitions: List<TypeDefinition>): List<ProcessedType> {
         val availableTypes = definitions.map(TypeDefinition::type) +
                 file.importedTypes() +
-                (definedPackages.get().find { it.name() == file.pkg }?.publicTypes() ?: arrayOf())
+                (definedPackages.get().find { it.name() == file.pkg }?.publicTypes() ?: arrayOf()) +
+                file.imports.types.values
 
         val processor = TypeProcessor(typeResolverFactory.get(), availableTypes.toSet())
         return definitions
