@@ -161,7 +161,7 @@ public interface UnionType extends Type {
         return Utils.EMPTY_ATTRIBUTES;
     }
 
-    static @NotNull UnionType ofClasses(@NotNull Class<?>[] classes) {
+    static @NotNull UnionType ofClasses(@NotNull Class<?>... classes) {
         return new UnionTypeImpl(
                 Arrays.stream(classes)
                         .map(TypeFactory::ofClass)
