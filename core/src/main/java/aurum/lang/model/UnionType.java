@@ -6,9 +6,7 @@ import aurum.lang.model.impl.Utils;
 import org.jetbrains.annotations.NotNull;
 
 import java.lang.reflect.AccessFlag;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashSet;
+import java.util.*;
 
 public interface UnionType extends Type {
     Type[] types();
@@ -65,30 +63,36 @@ public interface UnionType extends Type {
     default Type superClass() {
         Type[] types = types();
         if (types == null || types.length == 0) return Types.OBJECT;
+        if (types.length == 1) return types[0];
 
-        // Try each ancestor of the first type (including itself) as a candidate
-        for (Type candidate = types[0]; candidate != null; candidate = candidate.superClass()) {
-            boolean ok = true;
-            // Check that this candidate is a supertype of every other type in the union
-            for (int i = 1; i < types.length; i++) {
-                Type t = types[i];
-                boolean found = false;
-                for (Type anc = t; anc != null; anc = anc.superClass()) {
-                    if (anc.equals(candidate)) {
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found) { // candidate is not common to all
-                    ok = false;
-                    break;
-                }
-            }
-            if (ok) {
-                return candidate;
+        // The least upper bound of a union is the most specific type that is a supertype of
+        // every member. Candidate supertypes include class inheritance (superclass chain)
+        // as well as directly and transitively implemented/extended interfaces, since two
+        // unrelated classes may still share a common interface (e.g. String | StringBuilder
+        // -> CharSequence).
+        List<Type> candidates = types[0].getAllSupertypes();
+        Set<Type> common = new HashSet<>(candidates);
+
+        // Intersect with the ancestor sets of every other member so only common ancestors remain.
+        for (int i = 1; i < types.length; i++) {
+            Set<Type> otherSet = new HashSet<>(types[i].getAllSupertypes());
+            common.retainAll(otherSet);
+        }
+
+        // Pick the most specific common ancestor: the one that is a subtype of all the others.
+        // Iterate in declaration order (self, then superclass chain and interfaces of the first
+        // member) so that when several incomparable interfaces are common the first-declared one
+        // wins deterministically.
+        Type best = null;
+        for (Type candidate : candidates) {
+            if (!common.contains(candidate)) continue;
+            if (candidate.equals(Types.OBJECT)) continue; // defer Object until last
+            if (best == null || candidate.isSubclassOf(best)) {
+                best = candidate;
             }
         }
-        return Types.OBJECT;
+
+        return best != null ? best : Types.OBJECT;
     }
 
     @NotNull

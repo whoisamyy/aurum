@@ -7,10 +7,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.lang.classfile.TypeKind;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
+import java.util.*;
 
 public interface Type extends Accessible, Attributable, Generic {
     @NotNull String className();
@@ -422,6 +419,26 @@ public interface Type extends Accessible, Attributable, Generic {
                      .toList();
     }
 
+    /// Collects all supertypes of this type, including itself, its superclass chain, and all
+    /// directly or transitively implemented/extended interfaces.
+    ///
+    /// @return a list containing this type followed by all of its ancestors
+    default @NotNull List<@NotNull Type> getAllSupertypes() {
+        List<Type> result = new ArrayList<>();
+        Set<Type> seen = new HashSet<>();
+        Deque<Type> queue = new ArrayDeque<>();
+        queue.add(this);
+        while (!queue.isEmpty()) {
+            Type current = queue.poll();
+            if (!seen.add(current)) continue;
+            result.add(current);
+            Type sup = current.superClass();
+            if (sup != null) queue.add(sup);
+            queue.addAll(Arrays.asList(current.interfaces()));
+        }
+        return result;
+    }
+
     default String toUsageString() {
         return switch (this) {
             case IntersectionType intersection ->
@@ -455,21 +472,21 @@ public interface Type extends Accessible, Attributable, Generic {
     }
 
     default Type lowestCommonAncestorWith(Type other) {
-        for (Type candidate = this; candidate != null; candidate = candidate.superClass()) {
-            boolean ok = true;
-            // Check that this candidate is a supertype of every other type in the union
-            boolean found = false;
-            for (Type anc = other; anc != null; anc = anc.superClass()) {
-                if (anc.equals(candidate)) {
-                    found = true;
-                }
-            }
-            if (!found) { // candidate is not common to all
-                ok = false;
+        if (other == null) return Types.OBJECT;
+        Set<Type> otherSet = new HashSet<>(other.getAllSupertypes());
+
+        // Prefer the most specific common supertype. Walk this type's ancestors in order
+        // (self first, then superclasses and interfaces) and pick the first one shared
+        // with `other`, deferring java.lang.Object so a shared interface/class wins over it.
+        for (Type candidate : this.getAllSupertypes()) {
+            if (candidate.equals(Types.OBJECT)) {
                 continue;
             }
-            return candidate;
+            if (otherSet.contains(candidate)) {
+                return candidate;
+            }
         }
+
         return Types.OBJECT;
     }
 
