@@ -26,6 +26,8 @@ public final class JVMTranslator extends Translator<byte[]> {
     private final ConstantPool cp;
 
     public JVMTranslator(ProcessedType type) {
+        if (type.getType().typeParameters().length > 0)
+            type = new ProcessedType(type.getType().withDefaultTypeArguments(), type.getDeclaration(), type.getFile());
         super(type);
         this.cp = Objects.requireNonNull(AttributeExtensionsKt.get(this.type.attributes(), ConstantPoolAttribute.class))
                          .getConstantPool();
