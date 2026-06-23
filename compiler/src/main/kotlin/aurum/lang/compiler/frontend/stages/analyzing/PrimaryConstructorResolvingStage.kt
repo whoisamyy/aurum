@@ -30,7 +30,7 @@ class PrimaryConstructorResolvingStage : Stage() {
                 if (p.attributes().contains<PrimaryConstructorAttribute>()) {
                     code += PutField(
                         Reference.This,
-                        cp.getReference(it.type.findField(p.name()).orElseThrow()),
+                        cp.getReference(it.type.withDefaultTypeArguments().findField(p.name()).orElseThrow()),
                         Reference.Named(p.name())
                     )
                 }
