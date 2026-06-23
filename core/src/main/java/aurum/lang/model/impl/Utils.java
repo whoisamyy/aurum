@@ -260,6 +260,10 @@ public class Utils {
 
     // Apply type arguments to a Method signature
     public static Method applyTypeArguments(Method method, Type newOwner, TypeArgument[] typeArguments) {
+        // This may be temporary
+        if (method.owner().typeParameters().length == 0 && method.typeParameters().length == 0)
+            return method;
+
         Map<String, Type> typeMap = getTypeMap(typeArguments);
 
         Type newReturnType = replaceTemplates(method.returnType(), typeMap);
