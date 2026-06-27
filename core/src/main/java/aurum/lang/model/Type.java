@@ -97,10 +97,10 @@ public interface Type extends Accessible, Attributable, Generic {
             return true;
 
         if (this instanceof PrimitiveType primitiveType) {
-            if (primitiveType.boxed().fullName().equals(other.fullName()))
+            if (primitiveType.boxed().isSubclassOf(other))
                 return true;
         } else if (other instanceof PrimitiveType primitiveType) {
-            if (primitiveType.boxed().fullName().equals(this.fullName()))
+            if (other.isSubclassOf(primitiveType.boxed()))
                 return true;
         }
 
