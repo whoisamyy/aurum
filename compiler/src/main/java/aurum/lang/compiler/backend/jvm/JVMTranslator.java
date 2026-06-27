@@ -189,11 +189,14 @@ public final class JVMTranslator extends Translator<byte[]> {
                 case GetField getField -> {
                     resolveRValue(getField.getObj());
                     Field field = cp.dereference(getField.getField());
-                    if (field.owner().isArray()) {
+                    Type owner = field.owner().withDefaultTypeArguments();
+                    //noinspection OptionalGetWithoutIsPresent
+                    field = owner.findField(field.name()).get();
+                    if (owner.isArray()) {
                         cb.arraylength();
                     } else {
                         cb.getfield(
-                                JVMUtils.classDescOf(field.owner()),
+                                JVMUtils.classDescOf(owner),
                                 field.name(),
                                 JVMUtils.classDescOf(field.type())
                         );
@@ -209,15 +212,6 @@ public final class JVMTranslator extends Translator<byte[]> {
                             field.name(),
                             JVMUtils.classDescOf(field.type())
                     );
-                }
-                case GetStatic getStatic -> {
-                    Field field = cp.dereference(getStatic.getField());
-                    cb.getstatic(
-                            JVMUtils.classDescOf(field.owner()),
-                            field.name(),
-                            JVMUtils.classDescOf(field.type())
-                    );
-                    store(getStatic.getTarget(), field.type());
                 }
                 case GetMethod getMethod -> {
                     Method actual = cp.dereference((SingleMethodRef) getMethod.getMethod());
@@ -311,8 +305,8 @@ public final class JVMTranslator extends Translator<byte[]> {
             if (!(callVirtual.getMethod() instanceof SingleMethodRef ref)) {
                 throw new UnsupportedOperationException("Method group references not yet supported");
             }
-            Method actual = cp.dereference(ref).asGenericallyUntypedMember();
-            resolveRValue(callVirtual.getObj());
+            Method actual = cp.dereference(ref).withDefaultTypeArguments();
+            resolveRValue(callVirtual.getObj()).withDefaultTypeArguments();
             emitArguments(callVirtual.getArgs(), actual);
             if (actual.owner().isInterface()) {
                 cb.invokeinterface(
@@ -332,12 +326,13 @@ public final class JVMTranslator extends Translator<byte[]> {
 
         private void translateInvokeConstructor(InvokeConstructor init) {
             Type objType = resolveRValue(init.getObj());
-            List<Type> argTypes = init.getArgs().stream().map(this::resolveRValue).toList();
-            Method constructor = objType.findMethod("<init>", argTypes.toArray(Type[]::new))
+            List<Type> argTypes = init.getArgs().stream().map(this::getRValueType).toList();
+            Method constructor = objType.withDefaultTypeArguments()
+                                        .findMethod("<init>", argTypes.toArray(Type[]::new))
                                         .orElseThrow(() -> new IllegalStateException(
                                                 "Constructor not found on " + objType.toUsageString()
-                                        )).asGenericallyUntypedMember();
-//            emitArguments(init.getArgs(), constructor);
+                                        ));
+            emitArguments(init.getArgs(), constructor);
             cb.invokespecial(
                     JVMUtils.classDescOf(objType),
                     "<init>",
@@ -372,6 +367,49 @@ public final class JVMTranslator extends Translator<byte[]> {
                     cb.storeLocal(local.type.typeKind(), local.slot);
                 }
             }
+        }
+
+        private Type getRValueType(@Nullable RValue rvalue) {
+            if (rvalue == null)
+                return Types.VOID;
+
+            return switch (rvalue) {
+                case ConstantPoolRef constRef -> {
+                    var value = cp.dereference(constRef);
+                    yield switch (value) {
+                        case Method m -> functionalType(m);
+                        case Field f -> {
+                            if (!f.isStatic()) {
+                                throw new IllegalStateException("Cannot reference non-static field from static context");
+                            }
+                            yield f.type();
+                        }
+                        case Type _ -> Type.ofClass(Class.class);
+                        case Integer _ -> Types.INT;
+                        case Long _ -> Types.LONG;
+                        case Float _ -> Types.FLOAT;
+                        case Double _ -> Types.DOUBLE;
+                        case Boolean _ -> Types.BOOLEAN;
+                        case Byte _ -> Types.BYTE;
+                        case Short _ -> Types.SHORT;
+                        case Character _ -> Types.CHAR;
+                        case String _ -> Types.STRING;
+                        default -> throw new IllegalStateException("Unsupported constant pool value: " + value.getClass());
+                    };
+                }
+                case Reference.Super _ ->
+                        method.owner().superClass() != null ? method.owner().superClass() : Types.OBJECT;
+                case Reference.This _ -> {
+                    Local local = local("this");
+                    yield local.type;
+                }
+                case Reference ref -> {
+                    Local local = local(ref.getName());
+                    yield local.type;
+                }
+                case NullRef _ -> Types.OBJECT;
+                default -> throw new IllegalStateException("Unexpected RValue: " + rvalue.getClass());
+            };
         }
 
         private Type resolveRValue(@Nullable RValue rvalue) {
