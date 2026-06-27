@@ -3,7 +3,11 @@ package aurum.lang.model;
 import kotlin.Pair;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.stream.Collectors;
 
 public interface Method extends Member, Generic {
     @NotNull Type returnType();
@@ -15,7 +19,43 @@ public interface Method extends Member, Generic {
     @Override
     @NotNull Method withTypeArguments(Type @NotNull [] typeArguments);
     @Override
-    @NotNull Method withDefaultTypeArguments();
+    default @NotNull Method withDefaultTypeArguments() {
+        var allTypeParams = new ArrayList<TypeParameter>(owner().typeParameters().length + this.typeParameters().length);
+        Collections.addAll(allTypeParams, owner().typeParameters());
+        Collections.addAll(allTypeParams, this.typeParameters());
+
+        Type returnType = this.asGenericallyUntypedMember().returnType();
+        if (returnType instanceof TemplateType template) {
+            for (TypeParameter tp : allTypeParams) {
+                if (tp.name().equals(template.className()))
+                    returnType = tp.bound();
+            }
+        }
+
+        List<Type> parameterTypes = Arrays.stream(this.asGenericallyUntypedMember().parameters())
+                                          .map(Parameter::type)
+                                          .collect(Collectors.toCollection(ArrayList::new));
+
+        for (int i = 0; i < parameterTypes.size(); i++) {
+            Type t = parameterTypes.get(i);
+
+            if (t instanceof TemplateType template) {
+                for (TypeParameter tp : allTypeParams) {
+                    if (tp.name().equals(template.className()))
+                        parameterTypes.set(i, tp.bound());
+                }
+            }
+        }
+
+        return owner().withDefaultTypeArguments()
+                      .findMethodExact(name(), returnType, parameterTypes.toArray(Type[]::new))
+                      .orElseThrow()
+                      .withTypeArguments(
+                                       Arrays.stream(typeParameters())
+                                             .map(TypeParameter::bound)
+                                             .toArray(Type[]::new)
+                               );
+    }
 
     // needs better naming
     /// Converts this method into its generically untyped method equivalent. <br>

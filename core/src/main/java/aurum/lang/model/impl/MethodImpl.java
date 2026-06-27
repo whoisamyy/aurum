@@ -1,7 +1,6 @@
 package aurum.lang.model.impl;
 
 import aurum.lang.model.*;
-import aurum.lang.model.util.ParametrizedMethodPool;
 import org.jetbrains.annotations.NotNull;
 
 import java.lang.reflect.AccessFlag;
@@ -27,26 +26,6 @@ public record MethodImpl(
     @Override
     public Method withTypeArguments(Type @NotNull [] typeArguments) {
         return Utils.applyTypeArguments(this, owner, typeArguments);
-    }
-
-    @Override
-    public @NotNull Method withDefaultTypeArguments() {
-        return typeArguments.length > 0
-                ? ParametrizedMethodPool.getBaseMethod(this)
-                : this;
-
-//        return owner.withDefaultTypeArguments()
-//                    .findMethodExact(name, returnType, parameters)
-//                    .orElseThrow()
-//                    .withTypeArguments(
-//                            typeParameters
-//                                    .map(tps ->
-//                                            Arrays.stream(tps)
-//                                                  .map(TypeParameter::bound)
-//                                                  .toArray(Type[]::new)
-//                                    )
-//                                    .orElse(Utils.EMPTY_TYPES)
-//                    );
     }
 
     @Override

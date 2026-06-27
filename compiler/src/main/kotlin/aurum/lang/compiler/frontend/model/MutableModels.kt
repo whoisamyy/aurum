@@ -272,10 +272,6 @@ open class MutableMethod (
         return Utils.applyTypeArguments(this, owner, typeArguments)
     }
 
-    override fun withDefaultTypeArguments(): Method {
-        return this // TODO
-    }
-
     fun applyTypeArguments(vararg typeArguments: TypeArgument) {
         val newMethod = this.withTypeArguments(typeArguments)
 
