@@ -48,7 +48,7 @@ public interface Method extends Member, Generic {
         }
 
         return owner().withDefaultTypeArguments()
-                      .findMethodExact(name(), returnType, parameterTypes.toArray(Type[]::new))
+                      .findMethod(name(), returnType, parameterTypes.toArray(Type[]::new))
                       .orElseThrow()
                       .withTypeArguments(
                                        Arrays.stream(typeParameters())
