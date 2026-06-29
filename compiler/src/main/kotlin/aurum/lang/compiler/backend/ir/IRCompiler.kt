@@ -20,7 +20,7 @@ class IRCompiler(
     internal val typeResolver: AbstractTypeResolver,
     internal val cp: ConstantPool,
 ) {
-    private val thisType =
+    private val thisType: Type =
         if (method.owner().attributes().contains<ExtensionAttribute>())
             method.owner().attributes().get<ExtensionAttribute>()!!.type
         else
@@ -35,14 +35,10 @@ class IRCompiler(
     private val controlFlow = ControlFlowCompiler(this)
 
     init {
-        method.parameters().forEach {
-            createVariable(it.name(), it.type())
-        }
+        method.parameters().forEach { createVariable(it.name(), it.type()) }
     }
 
-    private fun variable(name: String): Variable? {
-        return currentScope[name]
-    }
+    private fun variable(name: String): Variable? = currentScope[name]
 
     internal fun createVariable(name: String, type: Type): Variable {
         val v = Variable(name, type)
@@ -57,6 +53,25 @@ class IRCompiler(
                 ir += Move(it.reference, value.ref())
             }
         }
+
+    internal fun enterScope(scope: Scope) {
+        currentScope = scope
+        ir += LabelInst(scope.startLabel)
+    }
+
+    internal fun newScope(name: String, parent: Scope? = null): Scope =
+        Scope(name, parent ?: currentScope)
+
+    internal fun exitScope() {
+        ir += LabelInst(currentScope.endLabel)
+        currentScope = currentScope.parent ?: error("Cannot exit scope with no parent")
+    }
+
+    private fun markEnclosingLambdaAsInstance() {
+        if (method.attributes().contains<LambdaMethodAttribute>()) {
+            (method as MutableMethod).accessFlags.remove(AccessFlag.STATIC)
+        }
+    }
 
     internal fun astCodeBlockType(block: ASTNode.CodeBlock): Type =
         when (block) {
@@ -78,23 +93,8 @@ class IRCompiler(
             else -> Types.OBJECT
         }
 
-    internal fun enterScope(scope: Scope) {
-        currentScope = scope
-        ir += LabelInst(scope.startLabel)
-    }
-
-    internal fun newScope(name: String, parent: Scope? = null): Scope {
-        return Scope(name, parent ?: currentScope)
-    }
-
-    internal fun exitScope() {
-        ir += LabelInst(currentScope.endLabel)
-        currentScope = currentScope.parent ?: error("Cannot exit scope with no parent")
-    }
-
     fun compile(codeBlock: ASTNode.CodeBlock): CodeAttribute {
         compileCodeBlock(codeBlock)
-
         return CodeAttribute(instructions)
     }
 
@@ -116,11 +116,8 @@ class IRCompiler(
         }
     }
 
-    internal fun compileExpression(expr: ASTNode.Expression): Value {
-        return when (expr) {
-//            is ASTNode.If -> controlFlow.compileIfExpression(expr)
-//            is ASTNode.Match -> controlFlow.compileMatchExpression(expr)
-
+    internal fun compileExpression(expr: ASTNode.Expression): Value =
+        when (expr) {
             is ASTNode.ParenthesizedExpression -> compileExpression(expr.expression)
 
             is ASTNode.Literal.Null -> Value(NullRef, Types.OBJECT)
@@ -129,53 +126,26 @@ class IRCompiler(
             is ASTNode.Literal.Number -> Value(this.cp.getConstant(expr.value), Type.ofClass(expr.value::class.javaPrimitiveType))
             is ASTNode.Literal.String -> Value(this.cp.getConstant(expr.value), Types.STRING)
 
-            is ASTNode.ArrayExpression -> {
-                compileArrayExpression(expr)
-            }
-            is ASTNode.TupleExpression -> {
-                compileTupleExpression(expr)
-            } // it needs tuple type(s)
-            is ASTNode.NamedTupleExpression -> TODO("Needs dynamic class generation. TODO")
+            is ASTNode.ArrayExpression -> compileArrayExpression(expr)
+            is ASTNode.TupleExpression -> compileTupleExpression(expr)
+            is ASTNode.NamedTupleExpression -> TODO("Needs dynamic class generation")
 
-            is ASTNode.IdentifierExpression -> {
-                compileIdentifierExpression(expr)
-            }
-            is ASTNode.IndexAccess -> {
-                compileIndexAccessExpression(expr)
-            }
-            is ASTNode.MemberAccess -> {
-                compileMemberAccess(expr)
-            }
-            is ASTNode.Cast -> {
-                compileCastExpression(expr)
-            }
-            is ASTNode.BinaryExpression -> {
-                compileBinaryExpression(expr)
-            }
-            is ASTNode.FunctionCall -> {
-                compileFunctionCall(expr)
-            }
-            is ASTNode.LambdaExpression -> {
-                compileLambdaExpression(expr)
-            }
-            is ASTNode.MapExpression -> {
-                compileMapExpression(expr)
-            }
-            is ASTNode.PrefixOperatorExpression -> {
-                compilePrefixOperatorExpression(expr)
-            }
+            is ASTNode.IdentifierExpression -> compileIdentifierExpression(expr)
+            is ASTNode.IndexAccess -> compileIndexAccessExpression(expr)
+            is ASTNode.MemberAccess -> compileMemberAccess(expr)
+            is ASTNode.Cast -> compileCastExpression(expr)
+            is ASTNode.BinaryExpression -> compileBinaryExpression(expr)
+            is ASTNode.FunctionCall -> compileFunctionCall(expr)
+            is ASTNode.LambdaExpression -> compileLambdaExpression(expr)
+            is ASTNode.MapExpression -> compileMapExpression(expr)
+            is ASTNode.PrefixOperatorExpression -> compilePrefixOperatorExpression(expr)
             is ASTNode.TypeExpr -> {
                 val type = typeResolver.getType(expr)
-                Value(
-                    cp.getReference(type),
-//                    Type.ofClass(Class::class.java).withTypeArguments(type)
-                    type
-                )
+                Value(cp.getReference(type), type)
             }
 
             else -> Value.DISCARD
         }
-    }
 
     private fun compileLambdaExpression(expr: ASTNode.LambdaExpression): Value {
         val lambdaMethod = MutableMethod(
@@ -253,17 +223,6 @@ class IRCompiler(
             }
 
         var custom: CustomOperator? = method?.attributes()?.get<CustomOperator>()
-//
-//        left.type.findMethodExact(opSymbol, arrayOf(right.type))
-//            .filter { !it.isStatic }
-//            .ifPresent { m ->
-//                m.attributes().get<CustomOperator>()
-//                    ?.takeIf { it.isBinary }
-//                    ?.let { op ->
-//                        method = m
-//                        custom = op
-//                    }
-//            }
 
         if (custom == null) {
             left.type.findMethodExact(opSymbol, arrayOf(left.type, right.type))
@@ -396,7 +355,17 @@ class IRCompiler(
 
         when (operator) {
             BinaryOperator.AND, BinaryOperator.OR -> {
-                compileShortCircuitLogical(variable, left, right, operator)
+                if (left.type == Types.BOOLEAN && right.type == Types.BOOLEAN) {
+                    compileShortCircuitLogical(variable, left, right, operator)
+                } else {
+                    val binaryOp = BinaryOp(
+                        variable.reference,
+                        left.ref(),
+                        right.ref(),
+                        operator,
+                    )
+                    ir.emit(binaryOp, variable)
+                }
                 return variable
             }
             else -> {
@@ -455,39 +424,10 @@ class IRCompiler(
         method: Method,
     ): Value {
         val variable = createVariable(
-            "binop#${hashStringOf((left to right))}",
+            "binop#${hashStringOf(left to right)}",
             method.returnType(),
         )
-
-        return if (method.isStatic)
-            compileMethodInvocation(method, variable, listOf(right), left)
-        else
-            compileMethodInvocation(method, variable, listOf(right), left)
-
-//        val call = if (method.isStatic) {
-//            Call(
-//                variable.reference,
-//                cp.getReference(method),
-//                listOf(left, right).refs(),
-//            )
-//        } else if (method.isFinal || method.owner().isFinal || method.isPrivate) {
-//            CallMethod(
-//                variable.reference,
-//                left.ref(),
-//                cp.getReference(method),
-//                listOf(right.ref()),
-//            )
-//        } else {
-//            CallVirtual(
-//                variable.reference,
-//                left.ref(),
-//                cp.getReference(method),
-//                listOf(right.ref()),
-//            )
-//        }
-//
-//        ir.emit(call, variable)
-//        return variable
+        return compileMethodInvocation(method, variable, listOf(right), left)
     }
 
     private fun compilePrefixOperatorExpression(expr: ASTNode.PrefixOperatorExpression): Value {
@@ -560,7 +500,7 @@ class IRCompiler(
                     val operand = exprValue.ref()
                     @Suppress("USELESS_IS_CHECK")
                     if (operand !is LValue && operand !is RValue)
-                        error("Cannot use `--` on non-lvalues")
+                        error("Cannot use `++` on non-lvalues")
                     ir += BinaryOp(
                         operand as LValue,
                         operand,
@@ -568,10 +508,7 @@ class IRCompiler(
                         BinaryOperator.ADD
                     )
 
-                    return Value(
-                        operand,
-                        exprValue.type
-                    )
+                    return Value(operand, exprValue.type)
                 }
 
                 else -> {}
@@ -581,37 +518,8 @@ class IRCompiler(
                 compileMethodInvocation(method, variable, listOf(exprValue), exprValue)
             else
                 compileMethodInvocation(method, variable, listOf(), exprValue)
-
-//            if (method.isStatic) {
-//                val call = Call(
-//                    variable.reference,
-//                    cp.getReference(method),
-//                    listOf(exprValue.ref())
-//                )
-//                ir.emit(call, variable)
-//            } else {
-//                val call = if (method.isFinal || method.owner().isFinal || method.isPrivate) {
-//                    CallMethod(
-//                        variable.reference,
-//                        exprValue.ref(),
-//                        cp.getReference(method),
-//                        listOf()
-//                    )
-//                } else {
-//                    CallVirtual(
-//                        variable.reference,
-//                        exprValue.ref(),
-//                        cp.getReference(method),
-//                        listOf()
-//                    )
-//                }
-//
-//                ir.emit(call, variable)
-//
-//                return variable
-//            }
         }
-        error("Could not find nor operator nor method `${expr.prefix.value}`")
+        error("Could not find operator nor method `${expr.prefix.value}`")
     }
 
     private fun compileMapExpression(expr: ASTNode.MapExpression): Variable {
@@ -725,32 +633,14 @@ class IRCompiler(
                 compileFunctionCallOnMethodGroupRef(value, argTypes, expr, args, callable)
             }
 
-            is MemberGroupRef -> {
-                val methods = cp.dereference<Member>(value).flatMap {
-                    when (it) {
-                        is Method -> listOf(it)
-                        is Field -> {
-                            val type = it.type()
-                            (type.getMethods("call") + type.getMethods("invoke")).toList()
-                        }
-                        else -> error("no")
-                    }
-                }
-                val method = getBestFittingMethod(methods, argTypes)
-                val variable = createVariable(
-                    "call#${hashStringOf(expr)}",
-                    method.returnType()
-                )
-                compileMethodInvocation(method, variable, args, callable)
-            }
+            is MemberGroupRef ->
+                invokeFromMemberGroup(value, expr, argTypes, args, callable)
 
-            is FieldRef -> {
+            is FieldRef ->
                 compileFunctionCallOnFieldRef(value, argTypes, expr, args, callable)
-            }
 
-            is TypeRef -> {
+            is TypeRef ->
                 compileConstructorCall(value, argTypes, expr, args)
-            }
 
             Reference.This -> {
                 if (this.method.name() == "<init>") {
@@ -792,9 +682,7 @@ class IRCompiler(
     ): Variable {
         val type = cp.dereference(value)
 
-        type.findMethod("<init>", argTypes.toTypedArray())
-            .orElseThrow()
-//        val constructorRef = cp.getReference(constructor)
+        type.findMethod("<init>", argTypes.toTypedArray()).orElseThrow()
 
         val variable = createVariable(
             "new#${hashStringOf(expr)}",
@@ -818,99 +706,29 @@ class IRCompiler(
         args: List<Value>,
         argTypes: List<Type>
     ): Value = when (val producer = callable.producer) {
-        is GetMethod -> {
-            when (val ref = producer.method) {
-                is SingleMethodRef -> {
-                    val method = cp.dereference(ref)
-                    val variable = createVariable(
-                        "call#${hashStringOf(expr)}",
-                        method.returnType()
-                    )
-                    compileMethodInvocation(method, variable, args, callable)
-                }
-
-                is MethodGroupRef -> {
-                    compileFunctionCallOnMethodGroupRef(ref, argTypes, expr, args, callable)
-                }
-            }
+        is GetMethod -> when (val ref = producer.method) {
+            is SingleMethodRef -> compileCall(expr, cp.dereference(ref), args, callable)
+            is MethodGroupRef -> compileFunctionCallOnMethodGroupRef(ref, argTypes, expr, args, callable)
         }
 
-        is GetMember -> {
-            when (val ref = producer.member) {
-                is SingleMethodRef -> {
-                    val method = cp.dereference(ref)
-                    val variable = createVariable(
-                        "call#${hashStringOf(expr)}",
-                        method.returnType()
-                    )
-                    compileMethodInvocation(method, variable, args, callable)
-                }
-
-                is MethodGroupRef -> {
-                    compileFunctionCallOnMethodGroupRef(ref, argTypes, expr, args, callable)
-                }
-
-                is MemberGroupRef -> {
-                    val methods = cp.dereference<Member>(ref).flatMap {
-                        when (it) {
-                            is Method -> listOf(it)
-                            is Field -> {
-                                val type = it.type()
-                                (type.getMethods("call") + type.getMethods("invoke")).toList()
-                            }
-                            else -> error("no")
-                        }
-                    }
-                    val method = getBestFittingMethod(methods, argTypes)
-                    val variable = createVariable(
-                        "call#${hashStringOf(expr)}",
-                        method.returnType()
-                    )
-                    compileMethodInvocation(method, variable, args, callable)
-                }
-
-                is FieldRef -> {
-                    compileFunctionCallOnFieldRef(ref, argTypes, expr, args, callable)
-                }
-
-                else -> TODO("${ref.javaClass}")
-            }
+        is GetMember -> when (val ref = producer.member) {
+            is SingleMethodRef -> compileCall(expr, cp.dereference(ref), args, callable)
+            is MethodGroupRef -> compileFunctionCallOnMethodGroupRef(ref, argTypes, expr, args, callable)
+            is MemberGroupRef -> invokeFromMemberGroup(ref, expr, argTypes, args, callable)
+            is FieldRef -> compileFunctionCallOnFieldRef(ref, argTypes, expr, args, callable)
+            else -> TODO("${ref.javaClass}")
         }
 
         is New -> {
             val type = cp.dereference(producer.classRef)
-
-            val methods = (type.getMethods("call") + type.getMethods("invoke")).toList()
-            val method = getBestFittingMethod(methods, argTypes)
-            val variable = createVariable(
-                "call#${hashStringOf(expr)}",
-                type
-            )
-
+            val method = getBestFittingMethod(callOrInvokeMethods(type), argTypes)
+            val variable = createVariable("call#${hashStringOf(expr)}", type)
             compileMethodInvocation(method, variable, args, callable)
         }
 
         else -> {
-            val type = callable.type
-
-            val methods = (type.getMethods("call") + type.getMethods("invoke")).toList()
-            val method = getBestFittingMethod(methods, argTypes)
-            val variable = createVariable(
-                "call#${hashStringOf(expr)}",
-                method.returnType()
-            )
-
-//            ir.emit(
-//                CallVirtual(
-//                    variable.reference,
-//                    callable.ref(),
-//                    cp.getReference(method),
-//                    args.map(Value::ref)
-//                ),
-//                variable
-//            )
-//            variable
-            compileMethodInvocation(method, variable, args, callable)
+            val method = getBestFittingMethod(callOrInvokeMethods(callable.type), argTypes)
+            compileCall(expr, method, args, callable)
         }
     }
 
@@ -922,28 +740,8 @@ class IRCompiler(
         callable: Value
     ): Value {
         val method = cp.dereference(value)
-        val variable = createVariable(
-            "call#${hashStringOf(expr)}",
-            method.returnType()
-        )
-        val paramTypes = method.parameters().map(Parameter::type)
-
-        val inheritanceDistances = paramTypes.zip(argTypes)
-            .map { (paramType, argType) ->
-                paramType.getInheritanceDistance(argType)
-            }
-
-        if (-1 in inheritanceDistances)
-            error(
-                "No method found with given signature: ${
-                    method.returnType().toUsageString()
-                } ${
-                    method.name()
-                }${
-                    argTypes.joinToString(", ", "(", ")") { it.toUsageString() }
-                }")
-
-        return compileMethodInvocation(method, variable, args, callable)
+        validateCallSignature(method, argTypes)
+        return compileCall(expr, method, args, callable)
     }
 
     private fun compileFunctionCallOnMethodGroupRef(
@@ -953,14 +751,8 @@ class IRCompiler(
         args: List<Value>,
         callable: Value
     ): Value {
-        val methods = cp.dereference(value)
-        val method = getBestFittingMethod(methods, argTypes)
-
-        val variable = createVariable(
-            "call#${hashStringOf(expr)}",
-            method.returnType()
-        )
-        return compileMethodInvocation(method, variable, args, callable)
+        val method = getBestFittingMethod(cp.dereference(value), argTypes)
+        return compileCall(expr, method, args, callable)
     }
 
     private fun compileFunctionCallOnFieldRef(
@@ -971,58 +763,22 @@ class IRCompiler(
         callable: Value
     ): Value {
         val field = cp.dereference(value)
-        val fType = field.type()
-        val methods = fType.getMethods("call") + fType.getMethods("invoke")
-
-        val method = getBestFittingMethod(methods.toList(), argTypes)
-        val variable = createVariable(
-            "call#${hashStringOf(expr)}",
-            method.returnType()
-        )
-
-        return compileMethodInvocation(method, variable, args, callable)
+        val method = getBestFittingMethod(callOrInvokeMethods(field.type()), argTypes)
+        return compileCall(expr, method, args, callable)
     }
 
+    /** Pick the overload whose parameter types are closest to the actual arguments. */
     private fun getBestFittingMethod(
         methods: List<Method>,
         argTypes: List<Type>
     ): Method {
-//        val pairList = methods
-//            .associateWith(Method::parameters)
-//            .mapValues { (_, it) -> it.map(Parameter::type) }
-//            .filter { (_, it) -> it.size == argTypes.size }
-//            .filter { (_, it) ->
-//                it.mapIndexed { i, type ->
-//                    argTypes[i].isSubclassOf(type)
-//                }.all { it }
-//            }
-//            .mapValues { (_, it) ->
-//                it.zip(argTypes)
-//                    .map { (paramType, argType) ->
-//                        paramType.getInheritanceDistance(argType)
-//                    }
-//            }
-//            .filterValues { it.all { n -> n >= 0 } }
-//            .mapValues { (_, ds) -> ds.sum() to ds.average() }
-//            .toList()
-        val pairList = methods
-            .associateWith { method -> method.getFitDegree(argTypes.toTypedArray()) }
-            .toList()
-        val minSum = pairList
-            .minBy { (_, p) ->
-                p.first
-            }.second.first
+        val fitScores = methods.associateWith { it.getFitDegree(argTypes.toTypedArray()) }
+        val minSum = fitScores.minOf { (_, score) -> score.first }
 
-        // minimal sum and minimal average is the method with most hierarchically close to argument types parameter types
-
-        val method = pairList
-            .filter { (_, p) ->
-                p.first == minSum
-            }
-            .minBy { (_, p) ->
-                p.second
-            }.first
-        return method
+        return fitScores
+            .filter { (_, score) -> score.first == minSum }
+            .minBy { (_, score) -> score.second }
+            .key
     }
 
     private fun compileMethodInvocation(
@@ -1031,12 +787,18 @@ class IRCompiler(
         args: List<Value>,
         callable: Value
     ): Value {
-//        val (sum, _) = method.getFitDegree(args.map { it.type }.toTypedArray())
-//        if (sum == Int.MAX_VALUE) {
-//            error("Wrong argument types")
-//        }
-
         val argTypes = args.map(Value::type)
+        val (sum, _) = method.getFitDegree(argTypes.toTypedArray())
+        if (sum == Int.MAX_VALUE) {
+            val expected = method.parameters().map(Parameter::type)
+            error(buildString {
+                append("Wrong argument types: got ")
+                append(if (argTypes.isNotEmpty()) argTypes.joinToString(", ") else "none")
+                append(" expected ")
+                append(if (expected.isNotEmpty()) expected.joinToString(", ") else "none")
+            })
+        }
+
         val typeParams = method.typeParameters()
 
         val typeArgsMap = mutableMapOf<String, MutableList<Int>>()
@@ -1085,17 +847,18 @@ class IRCompiler(
             ir.emit(call, variable)
             variable
         } else {
+            val receiver = resolveMethodCallReceiver(callable)
             val call = if (method.isFinal || (callable.type.isFinal && callable.type.isPlainType)) {
                 CallMethod(
                     variable.reference,
-                    callable.ref(),
+                    receiver,
                     value,
                     args.refs()
                 )
             } else {
                 CallVirtual(
                     variable.reference,
-                    callable.ref(),
+                    receiver,
                     value,
                     args.refs()
                 )
@@ -1105,6 +868,16 @@ class IRCompiler(
             variable
         }
     }
+
+    private fun resolveMethodCallReceiver(callable: Value): RValue =
+        when (val producer = callable.producer) {
+            is GetMethod -> producer.obj
+            is GetMember -> producer.obj
+            else -> when (val ref = callable.ref()) {
+                is MethodGroupRef, is MemberGroupRef -> Reference.This
+                else -> ref
+            }
+        }
 
     private fun compileCastExpression(expr: ASTNode.Cast): Value {
         val value = compileExpression(expr.expression)
@@ -1291,82 +1064,52 @@ class IRCompiler(
     }
 
     private fun compileIdentifierExpression(expr: ASTNode.IdentifierExpression): Value {
-        return when {
-            expr.identifier == "this" -> Value(Reference.This, thisType)
-            expr.identifier == "super" -> Value(Reference.Super, thisType.superClass()!!)
-            expr.identifier in currentScope -> currentScope[expr.identifier]!!
-            typeResolver.getTypeOrNull(expr.identifier) != null -> {
-                val value = typeResolver.getType(expr.identifier)
-                Value(cp.getReference(value), value)
-            }
-            thisType.fields().any { it.name() == expr.identifier } -> {
-                // fields must have unique names, hence `find`
-                val f = thisType.fields().find { it.name() == expr.identifier }!!
-                val fRef = cp.getReference(f)
-                if (f.isStatic) {
+        val name = expr.identifier
 
-                    Value(fRef, f.type())
-                } else {
-                    if (method.attributes().contains<LambdaMethodAttribute>()) {
-                        (method as MutableMethod).accessFlags.remove(AccessFlag.STATIC)
-                    }
-                    val variable = createVariable(
-                        "${f.name()}#${hashStringOf(expr)}",
-                        f.type(),
-                    )
-                    val getField = GetField(
-                        variable.reference,
-                        Reference.This,
-                        fRef
-                    )
-                    ir.emit(getField, variable)
-                    variable
-                }
-            }
-            thisType.findMethod(expr.identifier).isPresent -> {
-                val methods = thisType.getMethods(expr.identifier)
-
-                if (methods.size == 1) {
-                    if (methods[0].isStatic)
-                        return Value(cp.getReference(methods[0]), methods[0].getType())
-                    else {
-                        if (method.attributes().contains<LambdaMethodAttribute>()) {
-                            (method as MutableMethod).accessFlags.remove(AccessFlag.STATIC)
-                        }
-                        val variable = createVariable(
-                            "${methods[0].name()}#${hashStringOf(expr)}",
-                            methods[0].getType(),
-                        )
-                        ir.emit(
-                            GetMethod(
-                                variable.reference,
-                                Reference.This,
-                                cp.getReference(methods[0]),
-                            ),
-                            variable,
-                        )
-                        return variable
-                    }
-                }
-
-                if (methods.any { !it.isStatic } && method.attributes().contains<LambdaMethodAttribute>()) {
-                    (method as MutableMethod).accessFlags.remove(AccessFlag.STATIC)
-                }
-
-                Value(
-                    MethodGroupRef(methods.map { cp.getReference(it) }),
-                    UnionType.ofTypeModels(methods.map(Method::getType).toSet().toTypedArray())
-                )
-            }
-            this.typeResolver.getTypeOrNull(expr.identifier) != null -> {
-                val type = typeResolver.getType(expr.identifier)
-                Value(
-                    cp.getReference(type),
-                    type
-                )
-            }
-            else -> error("Unknown identifier: ${expr.identifier}")
+        when {
+            name == "this" -> return Value(Reference.This, thisType)
+            name == "super" -> return Value(Reference.Super, thisType.superClass()!!)
+            name in currentScope -> return currentScope[name]!!
         }
+
+        typeResolver.getTypeOrNull(name)?.let { type ->
+            return Value(cp.getReference(type), type)
+        }
+
+        thisType.fields().find { it.name() == name }?.let { field ->
+            val fieldRef = cp.getReference(field)
+            if (field.isStatic)
+                return Value(fieldRef, field.type())
+
+            markEnclosingLambdaAsInstance()
+            val variable = createVariable("${field.name()}#${hashStringOf(expr)}", field.type())
+            ir.emit(GetField(variable.reference, Reference.This, fieldRef), variable)
+            return variable
+        }
+
+        if (thisType.findMethod(name).isPresent) {
+            val methods = thisType.getMethods(name)
+            if (methods.size == 1) {
+                val m = methods[0]
+                if (m.isStatic)
+                    return Value(cp.getReference(m), m.getType())
+
+                markEnclosingLambdaAsInstance()
+                val variable = createVariable("${m.name()}#${hashStringOf(expr)}", m.getType())
+                ir.emit(GetMethod(variable.reference, Reference.This, cp.getReference(m)), variable)
+                return variable
+            }
+
+            if (methods.any { !it.isStatic })
+                markEnclosingLambdaAsInstance()
+
+            return Value(
+                MethodGroupRef(methods.map { cp.getReference(it) }),
+                UnionType.ofTypeModels(methods.map(Method::getType).toSet().toTypedArray()),
+            )
+        }
+
+        error("Unknown identifier: $name")
     }
 
     private fun compileArrayExpression(expr: ASTNode.ArrayExpression): Variable {
@@ -1415,7 +1158,6 @@ class IRCompiler(
             is ASTNode.VariableDeclaration -> compileVariableDeclaration(stmt)
             is ASTNode.Assignment -> compileAssignment(stmt)
             is ASTNode.For -> compileForStatement(stmt)
-//            else -> TODO("`$stmt` not implemented currently")
         }
     }
 
@@ -1459,12 +1201,8 @@ class IRCompiler(
                 ?: variableType
         )
 
-        //                val startLabel = Label("for_start#${hashStringOf(err)}")
-        //                val endLabel   = Label("for_end#${hashStringOf(err)}")
         val startLabel = Label("block#${currentScope.name}")
         val endLabel = currentScope.endLabel
-
-        //                ir += LabelInst(startLabel)
 
         val hasNext = createVariable(
             "hasNext#${hashStringOf(stmt)}",
@@ -1775,14 +1513,11 @@ class IRCompiler(
                 Value.DISCARD.reference,
                 array.ref(),
                 cp.getReference(method),
-                args.refs() + right
+                args.refs(),
             )
             ir += callVirtual
         }
     }
-
-    private fun hashStringOf(node: Any): String =
-        (node.hashCode() xor instructions.size).toHexString()
 
     private fun compileBreak() {
         ir += Jump(currentScope.endLabel) // TODO: add break-return (break value)
@@ -1800,9 +1535,7 @@ class IRCompiler(
                 val expr = compileExpression(it)
                 returnValue(expr)
             }
-            ?: run {
-                this@IRCompiler.ir += Return()
-            }
+            ?: run { ir += Return() }
     }
 
     private fun returnValue(expr: Value) {
@@ -1834,4 +1567,54 @@ class IRCompiler(
         ir += JumpIf(compileExpression(stmt.condition).ref(), currentScope.startLabel)
         exitScope()
     }
+
+    private fun compileCall(
+        expr: ASTNode.FunctionCall,
+        method: Method,
+        args: List<Value>,
+        receiver: Value,
+    ): Value {
+        val variable = createVariable("call#${hashStringOf(expr)}", method.returnType())
+        return compileMethodInvocation(method, variable, args, receiver)
+    }
+
+    private fun invokeFromMemberGroup(
+        ref: MemberGroupRef,
+        expr: ASTNode.FunctionCall,
+        argTypes: List<Type>,
+        args: List<Value>,
+        receiver: Value,
+    ): Value {
+        val method = getBestFittingMethod(resolveMemberGroupCallables(ref), argTypes)
+        return compileCall(expr, method, args, receiver)
+    }
+
+    private fun resolveMemberGroupCallables(ref: MemberGroupRef): List<Method> =
+        cp.dereference<Member>(ref).flatMap { member ->
+            when (member) {
+                is Method -> listOf(member)
+                is Field -> callOrInvokeMethods(member.type())
+                else -> error("Unexpected member in group: $member")
+            }
+        }
+
+    private fun callOrInvokeMethods(type: Type): List<Method> =
+        (type.getMethods("call") + type.getMethods("invoke")).toList()
+
+    private fun validateCallSignature(method: Method, argTypes: List<Type>) {
+        val paramTypes = method.parameters().map(Parameter::type)
+        val inheritanceDistances = paramTypes.zip(argTypes) { paramType, argType ->
+            paramType.getInheritanceDistance(argType)
+        }
+        if (-1 in inheritanceDistances) {
+            error(
+                "No method found with given signature: " +
+                    "${method.returnType().toUsageString()} ${method.name()}" +
+                    argTypes.joinToString(", ", "(", ")") { it.toUsageString() },
+            )
+        }
+    }
+
+    private fun hashStringOf(node: Any): String =
+        (node.hashCode() xor instructions.size).toHexString()
 }
