@@ -9,7 +9,7 @@ import aurum.lang.compiler.frontend.model.MutableType
 import aurum.lang.compiler.frontend.stages.ProcessedTypes
 import aurum.lang.compiler.frontend.stages.Stage
 import aurum.lang.compiler.frontend.stages.analyzing.CodeBlockAttribute
-import aurum.lang.compiler.frontend.stages.analyzing.OperatorResolvingStage
+import aurum.lang.compiler.frontend.stages.analyzing.DefaultParametersProcessingStage
 
 class CompilingStage : Stage() {
     val types = input<ProcessedTypes>()
@@ -17,7 +17,7 @@ class CompilingStage : Stage() {
 //    val newTypes = output<ProcessedTypes>()
 
     init {
-        dependsOn<OperatorResolvingStage>()
+        dependsOn<DefaultParametersProcessingStage>()
     }
 
     override fun execute() {

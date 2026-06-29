@@ -1,5 +1,6 @@
 package aurum.lang.compiler.frontend.stages.analyzing
 
+import aurum.lang.attribute.ConstantPoolAttribute
 import aurum.lang.compiler.frontend.model.MutableMethod
 import aurum.lang.compiler.frontend.model.MutablePackage
 import aurum.lang.compiler.frontend.model.MutableType
@@ -52,7 +53,8 @@ class TypeDefiningStage : Stage() {
 
         val type = MutableTypePool.get(
             "$",
-            file.pkg
+            file.pkg,
+            attributes = mutableListOf(ConstantPoolAttribute(file.constantPool))
         )
 
         if (type.methods.none { it.name() == "<init>" }) {
@@ -92,7 +94,8 @@ class TypeDefiningStage : Stage() {
                 val type = MutableTypePool.get(
                     it.name,
                     file.pkg,
-                    accessFlags = it.modifiers.toAccessFlags().toMutableList()
+                    accessFlags = it.modifiers.toAccessFlags().toMutableList(),
+                    attributes = mutableListOf(ConstantPoolAttribute(file.constantPool))
                 )
                 types[type] = it
 
@@ -112,7 +115,8 @@ class TypeDefiningStage : Stage() {
                 val type = MutableTypePool.get(
                     it.name,
                     file.pkg,
-                    accessFlags = accessFlags
+                    accessFlags = accessFlags,
+                    attributes = mutableListOf(ConstantPoolAttribute(file.constantPool))
                 )
                 types[type] = it
 
@@ -132,7 +136,8 @@ class TypeDefiningStage : Stage() {
                 val type = MutableTypePool.get(
                     it.name,
                     file.pkg,
-                    accessFlags = accessFlags
+                    accessFlags = accessFlags,
+                    attributes = mutableListOf(ConstantPoolAttribute(file.constantPool))
                 )
                 types[type] = it
             }
@@ -143,7 +148,7 @@ class TypeDefiningStage : Stage() {
                     "extension$${it.type}",
                     file.pkg,
                     accessFlags = it.modifiers.toAccessFlags().toMutableList(),
-                    attributes = mutableListOf(ExtensionAttribute())
+                    attributes = mutableListOf(ExtensionAttribute(), ConstantPoolAttribute(file.constantPool))
                 )
                 types[type] = it
 

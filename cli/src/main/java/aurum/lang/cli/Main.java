@@ -71,6 +71,7 @@ public class Main {
         Pipeline.registerStage(TranslatorInjectionStage.class);
         Pipeline.registerStage(TranslationStage.class);
         Pipeline.registerStage(PrimaryConstructorResolvingStage.class);
+        Pipeline.registerStage(DefaultParametersProcessingStage.class);
 
         Pipeline.run();
     }
