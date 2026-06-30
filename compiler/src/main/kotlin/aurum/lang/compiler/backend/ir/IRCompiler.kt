@@ -6,6 +6,7 @@ import aurum.lang.compiler.frontend.attribute.get
 import aurum.lang.compiler.frontend.model.MutableMethod
 import aurum.lang.compiler.frontend.model.MutableType
 import aurum.lang.compiler.frontend.model.getType
+import aurum.lang.compiler.frontend.stages.analyzing.ImportMap
 import aurum.lang.compiler.frontend.stages.parsing.ASTNode
 import aurum.lang.compiler.frontend.stages.parsing.Token
 import aurum.lang.compiler.frontend.stages.typeresolving.AbstractTypeResolver
@@ -19,6 +20,7 @@ class IRCompiler(
     private val method: Method,
     internal val typeResolver: AbstractTypeResolver,
     internal val cp: ConstantPool,
+    internal val importMap: ImportMap
 ) {
     private val thisType: Type =
         if (method.owner().attributes().contains<ExtensionAttribute>())
@@ -163,7 +165,8 @@ class IRCompiler(
         val lambdaCompiler = IRCompiler(
             lambdaMethod,
             typeResolver,
-            cp
+            cp,
+            importMap
         )
 
         val lambdaScope = LambdaScope(
@@ -788,19 +791,8 @@ class IRCompiler(
         callable: Value
     ): Value {
         val argTypes = args.map(Value::type)
-        val (sum, _) = method.getFitDegree(argTypes.toTypedArray())
-        if (sum == Int.MAX_VALUE) {
-            val expected = method.parameters().map(Parameter::type)
-            error(buildString {
-                append("Wrong argument types: got ")
-                append(if (argTypes.isNotEmpty()) argTypes.joinToString(", ") else "none")
-                append(" expected ")
-                append(if (expected.isNotEmpty()) expected.joinToString(", ") else "none")
-            })
-        }
 
         val typeParams = method.typeParameters()
-
         val typeArgsMap = mutableMapOf<String, MutableList<Int>>()
 
         method.parameters().forEachIndexed { i, it ->
@@ -831,6 +823,10 @@ class IRCompiler(
                 is GetMethod -> producer.obj
                 else -> error("Extension call requires bound receiver")
             }
+            val receiverType = getRValueType(receiver)
+
+            checkMethodSignature(method, listOf(receiverType) + argTypes)
+
             val call = Call(
                 variable.reference,
                 value,
@@ -839,6 +835,8 @@ class IRCompiler(
             ir.emit(call, variable)
             variable
         } else if (method.isStatic) {
+            checkMethodSignature(method, argTypes)
+
             val call = Call(
                 variable.reference,
                 value,
@@ -848,6 +846,9 @@ class IRCompiler(
             variable
         } else {
             val receiver = resolveMethodCallReceiver(callable)
+
+            checkMethodSignature(method, argTypes)
+
             val call = if (method.isFinal || (callable.type.isFinal && callable.type.isPlainType)) {
                 CallMethod(
                     variable.reference,
@@ -866,6 +867,45 @@ class IRCompiler(
 
             ir.emit(call, variable)
             variable
+        }
+    }
+
+    private fun getRValueType(receiver: RValue): Type = when (receiver) {
+        is Reference.Named ->
+            currentScope[receiver.name]!!.type
+
+        is Reference.This -> thisType
+        is Reference.Super -> thisType.superClass() ?: thisType.interfaces().first() // temp
+        is FieldRef -> cp.dereference(receiver).type()
+        is SingleMethodRef -> cp.dereference(receiver).getType()
+        is ConstantPoolRef -> {
+            when (val value = cp.dereference<Any>(receiver)) {
+                is Int -> Types.INT
+                is String -> Types.STRING
+                is Boolean -> Types.BOOLEAN
+                is Byte -> Types.BYTE
+                is Short -> Types.SHORT
+                is Char -> Types.CHAR
+                is Float -> Types.FLOAT
+                is Long -> Types.LONG
+                is Double -> Types.DOUBLE
+                else -> error("Couldn't infer type of $receiver")
+            }
+        }
+
+        else -> error("Couldn't infer type of $receiver")
+    }
+
+    private fun checkMethodSignature(method: Method, argTypes: List<Type>) {
+        val (sum, _) = method.getFitDegree(argTypes.toTypedArray())
+        if (sum == Int.MAX_VALUE) {
+            val expected = method.parameters().map(Parameter::type)
+            error(buildString {
+                append("Wrong argument types: got ")
+                append(if (argTypes.isNotEmpty()) argTypes.joinToString(", ") else "none")
+                append(" expected ")
+                append(if (expected.isNotEmpty()) expected.joinToString(", ") else "none")
+            })
         }
     }
 
@@ -1107,6 +1147,59 @@ class IRCompiler(
                 MethodGroupRef(methods.map { cp.getReference(it) }),
                 UnionType.ofTypeModels(methods.map(Method::getType).toSet().toTypedArray()),
             )
+        }
+
+        if (name in importMap.members) {
+            val members = importMap.members[name]!!
+            if (members.all { it is Field }) {
+                (members.first() as Field) // fields must have different names
+                    .let {
+                        if (it.isStatic) {
+                            return Value(
+                                cp.getReference(it),
+                                it.type()
+                            )
+                        } else error("Cannot import non-static fields")
+                    }
+            }
+            if (members.all { it is Method }) {
+                val methods = members.map { it as Method }
+                val qualifiedName = importMap[name]!!
+
+                if (methods.size == 1) {
+                    val m = methods[0]
+                    if (m.isStatic)
+                        return Value(cp.getReference(m), m.getType())
+
+                    val boundField = resolveImportBoundField(qualifiedName, methods)
+                        ?: error("Cannot import instance method `$name` without a static field receiver in the import path")
+
+                    val methodRef = cp.getReference(m)
+                    return Value(
+                        methodRef,
+                        m.getType(),
+                        GetMethod(Reference.Empty, cp.getReference(boundField), methodRef),
+                    )
+                }
+
+                val boundField = resolveImportBoundField(qualifiedName, methods)
+                if (boundField != null) {
+                    val methodRefs = cp.getReference(methods)
+                    return Value(
+                        methodRefs,
+                        UnionType.ofTypeModels(methods.map(Method::getType).toSet().toTypedArray()),
+                        GetMethod(Reference.Empty, cp.getReference(boundField), methodRefs),
+                    )
+                }
+
+                if (methods.any { !it.isStatic })
+                    error("Cannot import instance method `$name` without a static field receiver in the import path")
+
+                return Value(
+                    MethodGroupRef(methods.map { cp.getReference(it) }),
+                    UnionType.ofTypeModels(methods.map(Method::getType).toSet().toTypedArray()),
+                )
+            }
         }
 
         error("Unknown identifier: $name")
@@ -1617,4 +1710,71 @@ class IRCompiler(
 
     private fun hashStringOf(node: Any): String =
         (node.hashCode() xor instructions.size).toHexString()
+
+    private fun resolveImportBoundField(
+        qualifiedName: ASTNode.QualifiedName,
+        methods: List<Method>,
+    ): Field? {
+        if (methods.all { it.isStatic }) return null
+
+        val identifiers = qualifiedName.identifiers
+        if (identifiers.size < 3) return null
+
+        val fieldName = identifiers[identifiers.size - 2]
+        val ownerTypeIdentifiers = identifiers.dropLast(2)
+        val receiverType = methods.first().owner()
+
+        resolveOwnerType(ownerTypeIdentifiers)
+            ?.findField(fieldName)
+            ?.orElse(null)
+            ?.takeIf { it.isStatic && it.type().fullName() == receiverType.fullName() }
+            ?.let { return it }
+
+        val ownerTypePath = ownerTypeIdentifiers.joinToString(".")
+        return importMap.members.values
+            .asSequence()
+            .flatten()
+            .filterIsInstance<Field>()
+            .firstOrNull { field ->
+                field.isStatic &&
+                    field.name() == fieldName &&
+                    field.owner().fullName() == ownerTypePath &&
+                    field.type().fullName() == receiverType.fullName()
+            }
+    }
+
+    private fun resolveOwnerType(identifiers: List<String>): Type? {
+        if (identifiers.isEmpty()) return null
+
+        val fullName = identifiers.joinToString(".")
+        typeResolver.firstOrNull { it.fullName() == fullName }?.let { return it }
+        importMap.types.values.firstOrNull { it.fullName() == fullName }?.let { return it }
+
+        loadClass(identifiers)?.let { return Type.ofClass(it) }
+
+        return typeResolver.getTypeOrNull(identifiers.last())
+    }
+
+    private fun loadClass(identifiers: List<String>): Class<*>? {
+        if (identifiers.isEmpty()) return null
+
+        loadClassOrNull(identifiers.joinToString("."))?.let { return it }
+
+        if (identifiers.size < 2) return null
+
+        for (splitAt in identifiers.lastIndex downTo 1) {
+            val outer = identifiers.subList(0, splitAt).joinToString(".")
+            val inner = identifiers.subList(splitAt, identifiers.size).joinToString("$")
+            loadClassOrNull("$outer$$inner")?.let { return it }
+        }
+
+        return null
+    }
+
+    private fun loadClassOrNull(name: String): Class<*>? =
+        try {
+            Class.forName(name)
+        } catch (_: ClassNotFoundException) {
+            null
+        }
 }

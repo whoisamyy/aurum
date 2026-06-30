@@ -6,6 +6,7 @@ import aurum.lang.model.Field
 import aurum.lang.model.Method
 import aurum.lang.model.Type
 import aurum.lang.model.Types
+import kotlin.jvm.optionals.getOrNull
 
 class JVMLinker : AbstractLinker() {
     override fun linkTypeOrNull(qualifiedName: ASTNode.QualifiedName?): Type? {
@@ -20,10 +21,23 @@ class JVMLinker : AbstractLinker() {
 
         val identifiers = qualifiedName.identifiers
         val methodName = identifiers.last()
-        val ownerClass = loadClass(identifiers.dropLast(1)) ?: return null
+        val ownerType = getOwnerType(identifiers) ?: return null
 
-        val methods = typeOf(ownerClass).getMethods(methodName)
+        val methods = ownerType.getMethods(methodName)
         return methods.takeIf { it.isNotEmpty() }?.toList()
+    }
+
+    private fun getOwnerType(identifiers: List<String>): Type? {
+        val loadedClass = loadClass(identifiers.dropLast(1))
+        val ownerType = if (loadedClass != null)
+            typeOf(loadedClass)
+        else typeOf(loadClass(identifiers.dropLast(2)) ?: return null)
+            .findField(identifiers.reversed()[1])
+            .filter(Field::isStatic)
+            .map(Field::type)
+            .getOrNull()
+            ?: return null
+        return ownerType
     }
 
     override fun linkFieldOrNull(qualifiedName: ASTNode.QualifiedName?): Field? {
@@ -31,9 +45,9 @@ class JVMLinker : AbstractLinker() {
 
         val identifiers = qualifiedName.identifiers
         val fieldName = identifiers.last()
-        val ownerClass = loadClass(identifiers.dropLast(1)) ?: return null
+        val ownerType = getOwnerType(identifiers) ?: return null
 
-        return typeOf(ownerClass).findField(fieldName).orElse(null)
+        return ownerType.findField(fieldName).orElse(null)
     }
 
     private fun typeOf(clazz: Class<*>): Type {

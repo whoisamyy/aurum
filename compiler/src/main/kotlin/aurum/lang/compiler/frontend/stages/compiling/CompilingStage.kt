@@ -29,7 +29,7 @@ class CompilingStage : Stage() {
                 .filter { it.attributes.contains<CodeBlockAttribute>() }
                 .forEach {
                     val codeBlock = it.attributes.get<CodeBlockAttribute>()!!
-                    val compiler = IRCompiler(it, codeBlock.typeResolver, cp)
+                    val compiler = IRCompiler(it, codeBlock.typeResolver, cp, t.file.imports)
                     it.attributes += compiler.compile(codeBlock.codeBlock)
                 }
         }

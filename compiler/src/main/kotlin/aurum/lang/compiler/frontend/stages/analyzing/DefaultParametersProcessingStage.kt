@@ -7,13 +7,12 @@ import aurum.lang.compiler.frontend.attribute.contains
 import aurum.lang.compiler.frontend.attribute.get
 import aurum.lang.compiler.frontend.model.MutableMethod
 import aurum.lang.compiler.frontend.model.MutableType
-import aurum.lang.compiler.frontend.stages.ProcessedType
+import aurum.lang.compiler.frontend.stages.AurumFile
 import aurum.lang.compiler.frontend.stages.ProcessedTypes
 import aurum.lang.compiler.frontend.stages.Stage
 import aurum.lang.ir.*
 import aurum.lang.model.Method
 import aurum.lang.model.Parameter
-import aurum.lang.model.Type
 import aurum.lang.model.Types
 import aurum.lang.model.attribute.CustomOperator
 
@@ -27,13 +26,15 @@ class DefaultParametersProcessingStage : Stage() {
 
     override fun execute() {
         processedTypes.get()
-            .map(ProcessedType::type)
-            .map(Type::methods)
-            .flatMap { it.toList() }
-            .forEach(::processMethod)
+            .map { it.file to it.type.methods() }
+            .forEach { (file, methods) ->
+                methods.forEach { method ->
+                    processMethod(file, method)
+                }
+            }
     }
 
-    private fun processMethod(method: Method): Method {
+    private fun processMethod(file: AurumFile, method: Method): Method {
         val owner = method.owner()
         if (method !is MutableMethod || owner !is MutableType) return method
 
@@ -76,7 +77,8 @@ class DefaultParametersProcessingStage : Stage() {
                     val compiler = IRCompiler(
                         newMethod,
                         cbAttribute.typeResolver,
-                        cp
+                        cp,
+                        file.imports
                     )
 
                     args += defaultParams.takeLast(i)
