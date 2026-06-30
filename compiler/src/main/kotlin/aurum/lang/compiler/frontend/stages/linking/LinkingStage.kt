@@ -14,7 +14,7 @@ class LinkingStage : Stage() {
     }
 
     override fun execute() {
-        files.get().files.forEach {
+        files.get().forEach {
             linker.get()().link(it.imports)
         }
     }
